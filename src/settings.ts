@@ -4,11 +4,14 @@ export type Settings = {
   theme: Theme;
   /** Keep the app running in the system tray when the window is closed. */
   closeToTray: boolean;
+  /** The list that was open when the app was last closed. */
+  lastListId: string | null;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
   closeToTray: false,
+  lastListId: null,
 };
 
 const STORAGE_KEY = "checkd.settings";
@@ -21,6 +24,7 @@ export function loadSettings(): Settings {
     return {
       theme: parsed.theme ?? DEFAULT_SETTINGS.theme,
       closeToTray: parsed.closeToTray ?? DEFAULT_SETTINGS.closeToTray,
+      lastListId: parsed.lastListId ?? DEFAULT_SETTINGS.lastListId,
     };
   } catch {
     return DEFAULT_SETTINGS;

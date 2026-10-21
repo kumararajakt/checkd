@@ -15,7 +15,7 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 - `src/components/` — `Sidebar`, `NavItem` (one list row), `TaskList`, `TaskItem` (one task row), `ColorModal`, `RepeatModal`, `TimeModal`, `SettingsDialog`.
 - `src/types.ts` — shared data model (`List`, `Task`, `Repeat`, `MonthRepeat`, `AppData`).
 - `src/db.ts` — typed wrappers around the SQLite commands (`db.load()`, `db.createList()`, …).
-- `src/settings.ts` — app settings (theme, close-to-tray), persisted in `localStorage` under `checkd.settings`.
+- `src/settings.ts` — app settings (theme, close-to-tray, last opened list), persisted in `localStorage` under `checkd.settings`.
 - `src-tauri/` — Rust crate. Real entrypoint is `src-tauri/src/lib.rs` (`run()`); `main.rs` just calls `checkd_lib::run()`.
 - `src-tauri/src/db.rs` — SQLite layer: schema, models (mirror `src/types.ts`), and all CRUD.
 - `src-tauri/src/repeat.rs` — occurrence generator for repeat rules (pure functions over `chrono` dates).

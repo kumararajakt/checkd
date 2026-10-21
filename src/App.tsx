@@ -30,7 +30,18 @@ function App() {
   // Load the database on startup.
   useEffect(() => {
     db.load()
-      .then((data) => setLists(data.lists))
+      .then((data) => {
+        setLists(data.lists);
+        // Reopen the list that was open when the app was last closed.
+        const last = loadSettings().lastListId;
+        if (!last) return;
+        if (data.lists.some((l) => l.id === last)) {
+          setSelectedId(last);
+        } else {
+          // The list is gone — forget it instead of restoring it forever.
+          updateSettings({ lastListId: null });
+        }
+      })
       .catch((err) => setError(`Could not load data: ${err}`))
       .finally(() => setLoading(false));
   }, []);
@@ -81,6 +92,7 @@ function App() {
     const list: List = { id: crypto.randomUUID(), name, color: "#3b82f6", tasks: [] };
     setLists((prev) => [...prev, list]);
     setSelectedId(list.id);
+    updateSettings({ lastListId: list.id });
     persist(db.createList(list.id, list.name, list.color));
   }
 
@@ -188,8 +200,17 @@ function App() {
 
   function deleteList(id: string) {
     setLists((prev) => prev.filter((l) => l.id !== id));
-    setSelectedId((prev) => (prev === id ? null : prev));
+    if (selectedId === id) {
+      setSelectedId(null);
+      updateSettings({ lastListId: null });
+    }
     persist(db.deleteList(id));
+  }
+
+  /** Opens a list and remembers it for the next launch. */
+  function selectList(id: string) {
+    setSelectedId(id);
+    updateSettings({ lastListId: id });
   }
 
   const selected = lists.find((l) => l.id === selectedId);
@@ -230,7 +251,7 @@ function App() {
       <Sidebar
         lists={lists}
         selectedId={selectedId}
-        onSelect={setSelectedId}
+        onSelect={selectList}
         onAdd={addList}
         onRename={renameList}
         onDelete={deleteList}
