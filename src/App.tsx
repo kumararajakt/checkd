@@ -4,20 +4,46 @@ import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./components/Sidebar";
 import SettingsDialog from "./components/SettingsDialog";
 import TaskList from "./components/TaskList";
+import { db } from "./db";
 import { applyTheme, loadSettings, saveSettings, watchSystemTheme } from "./settings";
 import type { Settings } from "./settings";
-import type { List, Repeat } from "./types";
+import type { List, Repeat, Task } from "./types";
 
 function App() {
   const [lists, setLists] = useState<List[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [showSettings, setShowSettings] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load the database on startup.
+  useEffect(() => {
+    db.load()
+      .then((data) => setLists(data.lists))
+      .catch((err) => setError(`Could not load data: ${err}`))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Writes are optimistic: the UI updates first, then we persist. If a write
+  // fails we resync from the database so the UI never drifts from disk.
+  function persist(write: Promise<unknown>) {
+    write.catch(async (err) => {
+      setError(`Could not save changes: ${err}`);
+      try {
+        const data = await db.load();
+        setLists(data.lists);
+      } catch {
+        // The banner already explains the problem.
+      }
+    });
+  }
 
   function addList(name: string) {
     const list: List = { id: crypto.randomUUID(), name, color: "#3b82f6", tasks: [] };
     setLists((prev) => [...prev, list]);
     setSelectedId(list.id);
+    persist(db.createList(list.id, list.name, list.color));
   }
 
   function updateTasks(listId: string, update: (tasks: List["tasks"]) => List["tasks"]) {
@@ -26,70 +52,80 @@ function App() {
     );
   }
 
+  function findTask(listId: string, taskId: string): Task | undefined {
+    return lists.find((l) => l.id === listId)?.tasks.find((t) => t.id === taskId);
+  }
+
   function addTask(listId: string, title: string) {
-    updateTasks(listId, (tasks) => [
-      ...tasks,
-      {
-        id: crypto.randomUUID(),
-        title,
-        description: "",
-        dueDate: null,
-        dueTime: null,
-        repeat: null,
-      },
-    ]);
+    const task: Task = {
+      id: crypto.randomUUID(),
+      title,
+      description: "",
+      dueDate: null,
+      dueTime: null,
+      repeat: null,
+    };
+    updateTasks(listId, (tasks) => [...tasks, task]);
+    persist(db.createTask(task.id, listId, task.title));
   }
 
   function renameTask(listId: string, taskId: string, title: string) {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, title } : t)),
     );
+    persist(db.renameTask(taskId, title));
   }
 
   function deleteTask(listId: string, taskId: string) {
     updateTasks(listId, (tasks) => tasks.filter((t) => t.id !== taskId));
+    persist(db.deleteTask(taskId));
   }
 
   function setTaskDueDate(listId: string, taskId: string, dueDate: string | null) {
+    // Time is only valid alongside a date — drop it when the date goes.
+    const dueTime = dueDate ? (findTask(listId, taskId)?.dueTime ?? null) : null;
     updateTasks(listId, (tasks) =>
-      tasks.map((t) =>
-        t.id === taskId
-          ? // Time is only valid alongside a date — drop it when the date goes.
-            { ...t, dueDate, dueTime: dueDate ? t.dueTime : null }
-          : t,
-      ),
+      tasks.map((t) => (t.id === taskId ? { ...t, dueDate, dueTime } : t)),
     );
+    persist(db.setTaskDue(taskId, dueDate, dueTime));
   }
 
   function setTaskDueTime(listId: string, taskId: string, dueTime: string | null) {
+    const dueDate = findTask(listId, taskId)?.dueDate ?? null;
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, dueTime } : t)),
     );
+    persist(db.setTaskDue(taskId, dueDate, dueTime));
   }
 
   function setTaskDescription(listId: string, taskId: string, description: string) {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, description } : t)),
     );
+    persist(db.setTaskDescription(taskId, description));
   }
 
   function setTaskRepeat(listId: string, taskId: string, repeat: Repeat | null) {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, repeat } : t)),
     );
+    persist(db.setTaskRepeat(taskId, repeat));
   }
 
   function setListColor(id: string, color: string) {
     setLists((prev) => prev.map((l) => (l.id === id ? { ...l, color } : l)));
+    persist(db.setListColor(id, color));
   }
 
   function renameList(id: string, name: string) {
     setLists((prev) => prev.map((l) => (l.id === id ? { ...l, name } : l)));
+    persist(db.renameList(id, name));
   }
 
   function deleteList(id: string) {
     setLists((prev) => prev.filter((l) => l.id !== id));
     setSelectedId((prev) => (prev === id ? null : prev));
+    persist(db.deleteList(id));
   }
 
   const selected = lists.find((l) => l.id === selectedId);
@@ -139,7 +175,9 @@ function App() {
       />
 
       <main className="flex-1 overflow-y-auto p-6">
-        {selected ? (
+        {loading ? (
+          <p className="text-gray-500 dark:text-gray-400">Loading…</p>
+        ) : selected ? (
           <TaskList
             list={selected}
             onAdd={addTask}
@@ -167,6 +205,29 @@ function App() {
           onExport={exportData}
           onClose={() => setShowSettings(false)}
         />
+      )}
+
+      {error && (
+        <div className="fixed right-4 bottom-4 flex max-w-sm items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 shadow-lg dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Dismiss"
+            className="shrink-0 text-red-400 hover:text-red-600 dark:hover:text-red-200"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+              className="size-4"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       )}
     </div>
   );

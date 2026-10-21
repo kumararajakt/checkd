@@ -46,3 +46,8 @@ export type List = {
   color: string;
   tasks: Task[];
 };
+
+/** The whole database, as returned by the `load_data` command. */
+export type AppData = {
+  lists: List[];
+};
