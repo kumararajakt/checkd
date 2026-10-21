@@ -12,6 +12,15 @@ function App() {
     setSelectedId(list.id);
   }
 
+  function renameList(id: string, name: string) {
+    setLists((prev) => prev.map((l) => (l.id === id ? { ...l, name } : l)));
+  }
+
+  function deleteList(id: string) {
+    setLists((prev) => prev.filter((l) => l.id !== id));
+    setSelectedId((prev) => (prev === id ? null : prev));
+  }
+
   const selected = lists.find((l) => l.id === selectedId);
 
   return (
@@ -21,6 +30,8 @@ function App() {
         selectedId={selectedId}
         onSelect={setSelectedId}
         onAdd={addList}
+        onRename={renameList}
+        onDelete={deleteList}
       />
 
       <main className="flex-1 overflow-y-auto p-6">
