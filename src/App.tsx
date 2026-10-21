@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Sidebar from "./components/Sidebar";
 import TaskList from "./components/TaskList";
-import type { List } from "./types";
+import type { List, Repeat } from "./types";
 
 function App() {
   const [lists, setLists] = useState<List[]>([]);
@@ -28,6 +28,7 @@ function App() {
         description: "",
         dueDate: null,
         dueTime: null,
+        repeat: null,
       },
     ]);
   }
@@ -62,6 +63,12 @@ function App() {
   function setTaskDescription(listId: string, taskId: string, description: string) {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, description } : t)),
+    );
+  }
+
+  function setTaskRepeat(listId: string, taskId: string, repeat: Repeat | null) {
+    updateTasks(listId, (tasks) =>
+      tasks.map((t) => (t.id === taskId ? { ...t, repeat } : t)),
     );
   }
 
@@ -102,6 +109,7 @@ function App() {
             onSetDueDate={setTaskDueDate}
             onSetDueTime={setTaskDueTime}
             onSetDescription={setTaskDescription}
+            onSetRepeat={setTaskRepeat}
           />
         ) : (
           <>

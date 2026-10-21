@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import type { List } from "../types";
+import type { List, Repeat } from "../types";
 import TaskItem from "./TaskItem";
 
 type TaskListProps = {
@@ -10,6 +10,7 @@ type TaskListProps = {
   onSetDueDate: (listId: string, taskId: string, dueDate: string | null) => void;
   onSetDueTime: (listId: string, taskId: string, dueTime: string | null) => void;
   onSetDescription: (listId: string, taskId: string, description: string) => void;
+  onSetRepeat: (listId: string, taskId: string, repeat: Repeat | null) => void;
 };
 
 export default function TaskList({
@@ -20,6 +21,7 @@ export default function TaskList({
   onSetDueDate,
   onSetDueTime,
   onSetDescription,
+  onSetRepeat,
 }: TaskListProps) {
   const [draft, setDraft] = useState("");
 
@@ -69,6 +71,7 @@ export default function TaskList({
               onSetDescription={(taskId, description) =>
                 onSetDescription(list.id, taskId, description)
               }
+              onSetRepeat={(taskId, repeat) => onSetRepeat(list.id, taskId, repeat)}
             />
           ))
         )}

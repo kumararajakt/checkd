@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from "react";
-import type { Task } from "../types";
+import type { Repeat, Task } from "../types";
+import RepeatModal from "./RepeatModal";
 
 type TaskItemProps = {
   task: Task;
@@ -8,6 +9,7 @@ type TaskItemProps = {
   onSetDueDate: (id: string, dueDate: string | null) => void;
   onSetDueTime: (id: string, dueTime: string | null) => void;
   onSetDescription: (id: string, description: string) => void;
+  onSetRepeat: (id: string, repeat: Repeat | null) => void;
 };
 
 const TRASH_ICON =
@@ -17,6 +19,9 @@ const CHEVRON_ICON = "M8.25 4.5l7.5 7.5-7.5 7.5";
 
 const CALENDAR_ICON =
   "M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5";
+
+const REPEAT_ICON =
+  "M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99";
 
 /** Format YYYY-MM-DD as e.g. "Oct 24, 2026" (parsed as a local date, not UTC). */
 function formatDueDate(dueDate: string): string {
@@ -69,6 +74,44 @@ function dueLabel(task: Task): string {
   return task.dueTime ? `${date} · ${formatDueTime(task.dueTime)}` : date;
 }
 
+/** Long weekday name for 0 = Sunday … 6 = Saturday (Jan 2, 2000 was a Sunday). */
+function weekdayName(day: number): string {
+  return new Date(2000, 0, 2 + day).toLocaleDateString(undefined, {
+    weekday: "long",
+  });
+}
+
+/** "first" | "second" | "third" | "fourth" | "last" */
+function weekLabel(week: 1 | 2 | 3 | 4 | "last"): string {
+  return week === "last" ? "last" : ["first", "second", "third", "fourth"][week - 1];
+}
+
+/** Short human summary, e.g. "Every 2 weeks on Sunday · until Oct 24, 2026". */
+function repeatSummary(repeat: Repeat): string {
+  const base =
+    repeat.interval === 1
+      ? `Every ${repeat.unit}`
+      : `Every ${repeat.interval} ${repeat.unit}s`;
+  let summary = base;
+  if (repeat.unit === "week" && repeat.weekday !== null) {
+    summary += ` on ${weekdayName(repeat.weekday)}`;
+  }
+  if (repeat.unit === "month" && repeat.monthRepeat) {
+    const m = repeat.monthRepeat;
+    if (m.type === "day") summary += ` on day ${m.day}`;
+    else if (m.type === "last-day") summary += ` on the last day`;
+    else summary += ` on the ${weekLabel(m.week)} ${weekdayName(m.weekday)}`;
+  }
+  if (repeat.time) summary += ` at ${formatDueTime(repeat.time)}`;
+  if (repeat.end.type === "on") {
+    return `${summary} · until ${formatDueDate(repeat.end.date)}`;
+  }
+  if (repeat.end.type === "after") {
+    return `${summary} · ${repeat.end.count}×`;
+  }
+  return summary;
+}
+
 export default function TaskItem({
   task,
   onRename,
@@ -76,11 +119,13 @@ export default function TaskItem({
   onSetDueDate,
   onSetDueTime,
   onSetDescription,
+  onSetRepeat,
 }: TaskItemProps) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
+  const [showRepeatModal, setShowRepeatModal] = useState(false);
 
   function startEdit() {
     setEditDraft(task.title);
@@ -244,8 +289,42 @@ export default function TaskItem({
               className="w-full resize-none rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400"
             />
           </div>
+
+          <div className="px-3 pb-2 pl-9">
+            <button
+              type="button"
+              onClick={() => setShowRepeatModal(true)}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                task.repeat
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-gray-300 text-gray-600 hover:bg-white"
+              }`}
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                className="size-3.5"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d={REPEAT_ICON} />
+              </svg>
+              {task.repeat ? repeatSummary(task.repeat) : "Repeat"}
+            </button>
+          </div>
         </div>
       </div>
+
+      {showRepeatModal && (
+        <RepeatModal
+          repeat={task.repeat}
+          defaultStart={task.dueDate ?? todayString()}
+          defaultTime={task.dueTime}
+          onSave={(repeat) => onSetRepeat(task.id, repeat)}
+          onClose={() => setShowRepeatModal(false)}
+        />
+      )}
     </div>
   );
 }
