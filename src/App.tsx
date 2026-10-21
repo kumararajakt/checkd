@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Sidebar from "./components/Sidebar";
+import TaskList from "./components/TaskList";
 import type { List } from "./types";
 
 function App() {
@@ -7,9 +8,29 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   function addList(name: string) {
-    const list: List = { id: crypto.randomUUID(), name, color: "#3b82f6" };
+    const list: List = { id: crypto.randomUUID(), name, color: "#3b82f6", tasks: [] };
     setLists((prev) => [...prev, list]);
     setSelectedId(list.id);
+  }
+
+  function updateTasks(listId: string, update: (tasks: List["tasks"]) => List["tasks"]) {
+    setLists((prev) =>
+      prev.map((l) => (l.id === listId ? { ...l, tasks: update(l.tasks) } : l)),
+    );
+  }
+
+  function addTask(listId: string, title: string) {
+    updateTasks(listId, (tasks) => [...tasks, { id: crypto.randomUUID(), title }]);
+  }
+
+  function renameTask(listId: string, taskId: string, title: string) {
+    updateTasks(listId, (tasks) =>
+      tasks.map((t) => (t.id === taskId ? { ...t, title } : t)),
+    );
+  }
+
+  function deleteTask(listId: string, taskId: string) {
+    updateTasks(listId, (tasks) => tasks.filter((t) => t.id !== taskId));
   }
 
   function setListColor(id: string, color: string) {
@@ -41,10 +62,12 @@ function App() {
 
       <main className="flex-1 overflow-y-auto p-6">
         {selected ? (
-          <>
-            <h1 className="text-2xl font-bold">{selected.name}</h1>
-            <p className="text-gray-500">Nothing here yet.</p>
-          </>
+          <TaskList
+            list={selected}
+            onAdd={addTask}
+            onRename={renameTask}
+            onDelete={deleteTask}
+          />
         ) : (
           <>
             <h1 className="text-2xl font-bold">checkd</h1>
