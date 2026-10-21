@@ -1,5 +1,6 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import type { List } from "../types";
+import ColorModal from "./ColorModal";
 
 type SidebarProps = {
   lists: List[];
@@ -8,6 +9,7 @@ type SidebarProps = {
   onAdd: (name: string) => void;
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
+  onSetColor: (id: string, color: string) => void;
 };
 
 const SETTINGS = {
@@ -25,11 +27,13 @@ export default function Sidebar({
   onAdd,
   onRename,
   onDelete,
+  onSetColor,
 }: SidebarProps) {
   const [expanded, setExpanded] = useState(true);
   const [draft, setDraft] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [colorForId, setColorForId] = useState<string | null>(null);
 
   function submitNewList(e: FormEvent) {
     e.preventDefault();
@@ -110,7 +114,14 @@ export default function Sidebar({
                   }`}
                 >
                   <span
-                    className={`shrink-0 rounded-full bg-blue-500 ${
+                    style={{ backgroundColor: list.color }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(null);
+                      setColorForId(list.id);
+                    }}
+                    title="Double-click to change color"
+                    className={`shrink-0 cursor-pointer rounded-full ${
                       expanded ? "size-4" : "size-3"
                     }`}
                   />
@@ -165,8 +176,7 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Expand/collapse toggle pinned to the sidebar's outer edge */}
-      <button
+      {/* Expand/collapse toggle pinned to the sidebar's outer edge */}      <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
@@ -183,6 +193,19 @@ export default function Sidebar({
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
         </svg>
       </button>
+
+      {colorForId &&
+        (() => {
+          const list = lists.find((l) => l.id === colorForId);
+          if (!list) return null;
+          return (
+            <ColorModal
+              color={list.color}
+              onPick={(color) => onSetColor(list.id, color)}
+              onClose={() => setColorForId(null)}
+            />
+          );
+        })()}
     </aside>
   );
 }

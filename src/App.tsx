@@ -7,9 +7,13 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   function addList(name: string) {
-    const list: List = { id: crypto.randomUUID(), name };
+    const list: List = { id: crypto.randomUUID(), name, color: "#3b82f6" };
     setLists((prev) => [...prev, list]);
     setSelectedId(list.id);
+  }
+
+  function setListColor(id: string, color: string) {
+    setLists((prev) => prev.map((l) => (l.id === id ? { ...l, color } : l)));
   }
 
   function renameList(id: string, name: string) {
@@ -32,6 +36,7 @@ function App() {
         onAdd={addList}
         onRename={renameList}
         onDelete={deleteList}
+        onSetColor={setListColor}
       />
 
       <main className="flex-1 overflow-y-auto p-6">
