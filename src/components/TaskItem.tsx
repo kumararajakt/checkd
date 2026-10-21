@@ -151,7 +151,7 @@ export default function TaskItem({
   }
 
   return (
-    <div className="rounded-md hover:bg-gray-100">
+    <div className="rounded-md hover:bg-gray-100 dark:hover:bg-gray-800">
       <div className="flex items-center gap-3 px-3 py-2">
         {editing ? (
           <input
@@ -160,7 +160,7 @@ export default function TaskItem({
             onChange={(e) => setEditDraft(e.currentTarget.value)}
             onKeyDown={editKeyDown}
             onBlur={commitEdit}
-            className="min-w-0 flex-1 rounded-md border border-blue-400 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none"
+            className="min-w-0 flex-1 rounded-md border border-blue-400 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none dark:bg-gray-900 dark:text-gray-100"
           />
         ) : (
           <button
@@ -168,7 +168,7 @@ export default function TaskItem({
             onClick={() => setOpen((v) => !v)}
             onDoubleClick={startEdit}
             title={`${task.title} (click to expand, double-click to rename)`}
-            className="flex min-w-0 flex-1 items-start gap-2 text-left text-sm text-gray-800"
+            className="flex min-w-0 flex-1 items-start gap-2 text-left text-sm text-gray-800 dark:text-gray-200"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -176,7 +176,7 @@ export default function TaskItem({
               viewBox="0 0 24 24"
               strokeWidth={2}
               stroke="currentColor"
-              className={`mt-1 size-3.5 shrink-0 text-gray-400 transition-transform duration-200 ${
+              className={`mt-1 size-3.5 shrink-0 text-gray-400 transition-transform duration-200 dark:text-gray-500 ${
                 open ? "rotate-90" : ""
               }`}
             >
@@ -188,8 +188,8 @@ export default function TaskItem({
                 <span
                   className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
                     isOverdue(task)
-                      ? "bg-red-50 text-red-600"
-                      : "bg-gray-100 text-gray-600"
+                      ? "bg-red-50 text-red-600 dark:bg-red-950/50 dark:text-red-400"
+                      : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                   }`}
                 >
                   {dueLabel(task)}
@@ -205,7 +205,7 @@ export default function TaskItem({
           onDoubleClick={(e) => e.stopPropagation()}
           aria-label={`Delete ${task.title}`}
           title="Delete task"
-          className="shrink-0 p-1 text-gray-400 hover:text-red-500"
+          className="shrink-0 p-1 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -238,7 +238,7 @@ export default function TaskItem({
                   setPicking(false);
                 }}
                 onBlur={() => setPicking(false)}
-                className="rounded-md border border-blue-400 bg-white px-2 py-1 text-xs text-gray-900 outline-none"
+                className="rounded-md border border-blue-400 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:bg-gray-900 dark:text-gray-100"
               />
             ) : (
               <button
@@ -246,10 +246,10 @@ export default function TaskItem({
                 onClick={() => setPicking(true)}
                 className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
                   !task.dueDate
-                    ? "border-gray-300 text-gray-600 hover:bg-white"
+                    ? "border-gray-300 text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                     : isOverdue(task)
-                      ? "border-red-200 bg-red-50 text-red-600"
-                      : "border-blue-200 bg-blue-50 text-blue-700"
+                      ? "border-red-200 bg-red-50 text-red-600 dark:border-red-900 dark:bg-red-950/50 dark:text-red-400"
+                      : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/50 dark:text-blue-300"
                 }`}
               >
                 <svg
@@ -272,7 +272,7 @@ export default function TaskItem({
                 value={task.dueTime ?? ""}
                 onChange={(e) => onSetDueTime(task.id, e.currentTarget.value || null)}
                 aria-label="Due time"
-                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400"
+                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
               />
             )}
 
@@ -280,7 +280,7 @@ export default function TaskItem({
               <button
                 type="button"
                 onClick={() => onSetDueDate(task.id, null)}
-                className="text-xs text-gray-400 hover:text-red-500"
+                className="text-xs text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
               >
                 Clear
               </button>
@@ -293,7 +293,7 @@ export default function TaskItem({
               onChange={(e) => onSetDescription(task.id, e.currentTarget.value)}
               placeholder="Add a description..."
               rows={2}
-              className="w-full resize-none rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400"
+              className="w-full resize-none rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
             />
           </div>
 
@@ -303,8 +303,8 @@ export default function TaskItem({
               onClick={() => setShowRepeatModal(true)}
               className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
                 task.repeat
-                  ? "border-blue-200 bg-blue-50 text-blue-700"
-                  : "border-gray-300 text-gray-600 hover:bg-white"
+                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/50 dark:text-blue-300"
+                  : "border-gray-300 text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
               }`}
             >
               <svg

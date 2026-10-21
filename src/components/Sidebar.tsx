@@ -10,6 +10,7 @@ type SidebarProps = {
   onRename: (id: string, name: string) => void;
   onDelete: (id: string) => void;
   onSetColor: (id: string, color: string) => void;
+  onOpenSettings: () => void;
 };
 
 const SETTINGS = {
@@ -25,6 +26,7 @@ export default function Sidebar({
   onRename,
   onDelete,
   onSetColor,
+  onOpenSettings,
 }: SidebarProps) {
   const [expanded, setExpanded] = useState(true);
   const [draft, setDraft] = useState("");
@@ -39,21 +41,21 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`relative flex h-full shrink-0 flex-col border-r border-gray-200 bg-white transition-[width] duration-200 ease-in-out ${
+      className={`relative flex h-full shrink-0 flex-col border-r border-gray-200 bg-white transition-[width] duration-200 ease-in-out dark:border-gray-800 dark:bg-gray-900 ${
         expanded ? "w-1/3" : "w-16"
       }`}
     >
-      <div className="flex h-12 items-center gap-2 border-b border-gray-200 px-4">
+      <div className="flex h-12 items-center gap-2 border-b border-gray-200 px-4 dark:border-gray-800">
         <img src="/checkd.svg" alt="checkd" className="size-6 shrink-0" />
         {expanded && <span className="truncate font-semibold">checkd</span>}
       </div>
 
-      <form onSubmit={submitNewList} className="border-b border-gray-200 p-2">
+      <form onSubmit={submitNewList} className="border-b border-gray-200 p-2 dark:border-gray-800">
         <input
           value={draft}
           onChange={(e) => setDraft(e.currentTarget.value)}
           placeholder={expanded ? "+ New List" : "+"}
-          className={`w-full rounded-md bg-transparent px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none hover:bg-gray-100 focus:bg-gray-100 ${
+          className={`w-full rounded-md bg-transparent px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none hover:bg-gray-100 focus:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800 dark:focus:bg-gray-800 ${
             expanded ? "" : "text-center"
           }`}
         />
@@ -74,11 +76,12 @@ export default function Sidebar({
         ))}
       </nav>
 
-      <div className="border-t border-gray-200 p-2">
+      <div className="border-t border-gray-200 p-2 dark:border-gray-800">
         <button
           type="button"
+          onClick={onOpenSettings}
           title={SETTINGS.label}
-          className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 ${
+          className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800 ${
             expanded ? "justify-start" : "justify-center"
           }`}
         >
@@ -101,7 +104,7 @@ export default function Sidebar({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-label={expanded ? "Collapse sidebar" : "Expand sidebar"}
-        className="absolute top-16 -right-3 flex size-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50"
+        className="absolute top-16 -right-3 flex size-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

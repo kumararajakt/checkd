@@ -46,8 +46,8 @@ export default function NavItem({
 
   return (
     <div
-      className={`group flex items-center rounded-md hover:bg-gray-100 ${
-        selected ? "bg-gray-100" : ""
+      className={`group flex items-center rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 ${
+        selected ? "bg-gray-100 dark:bg-gray-800" : ""
       }`}
     >
       {editing ? (
@@ -57,7 +57,7 @@ export default function NavItem({
           onChange={(e) => setEditDraft(e.currentTarget.value)}
           onKeyDown={editKeyDown}
           onBlur={commitEdit}
-          className={`min-w-0 flex-1 rounded-md border border-blue-400 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none ${
+          className={`min-w-0 flex-1 rounded-md border border-blue-400 bg-white px-3 py-1.5 text-sm text-gray-900 outline-none dark:bg-gray-900 dark:text-gray-100 ${
             expanded ? "" : "w-full text-center"
           }`}
         />
@@ -67,7 +67,7 @@ export default function NavItem({
           onClick={() => onSelect(list.id)}
           onDoubleClick={startEdit}
           title={`${list.name} (double-click to rename)`}
-          className={`flex min-w-0 flex-1 items-center gap-3 py-2 text-sm text-gray-700 ${
+          className={`flex min-w-0 flex-1 items-center gap-3 py-2 text-sm text-gray-700 dark:text-gray-200 ${
             expanded ? "px-3" : "flex-col gap-1 px-1"
           }`}
         >
@@ -92,7 +92,7 @@ export default function NavItem({
         onClick={() => onDelete(list.id)}
         aria-label={`Delete ${list.name}`}
         title="Delete list"
-        className={`shrink-0 p-1 text-gray-400 hover:text-red-500 ${expanded ? "" : "pb-2"}`}
+        className={`shrink-0 p-1 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 ${expanded ? "" : "pb-2"}`}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"

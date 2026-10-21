@@ -48,13 +48,13 @@ export default function TaskList({
           value={draft}
           onChange={(e) => setDraft(e.currentTarget.value)}
           placeholder="+ New Task"
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-blue-500"
+          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
         />
       </form>
 
       <div className="mt-4 flex flex-col gap-1">
         {list.tasks.length === 0 ? (
-          <p className="px-3 text-sm text-gray-400">No tasks yet.</p>
+          <p className="px-3 text-sm text-gray-400 dark:text-gray-500">No tasks yet.</p>
         ) : (
           list.tasks.map((task) => (
             <TaskItem

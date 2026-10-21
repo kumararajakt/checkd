@@ -1,11 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import Sidebar from "./components/Sidebar";
+import SettingsDialog from "./components/SettingsDialog";
 import TaskList from "./components/TaskList";
+import { applyTheme, loadSettings, saveSettings, watchSystemTheme } from "./settings";
+import type { Settings } from "./settings";
 import type { List, Repeat } from "./types";
 
 function App() {
   const [lists, setLists] = useState<List[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [showSettings, setShowSettings] = useState(false);
 
   function addList(name: string) {
     const list: List = { id: crypto.randomUUID(), name, color: "#3b82f6", tasks: [] };
@@ -87,8 +94,39 @@ function App() {
 
   const selected = lists.find((l) => l.id === selectedId);
 
+  // Theme: apply the chosen theme, and follow the OS when set to "system".
+  useEffect(() => {
+    applyTheme(settings.theme);
+    if (settings.theme !== "system") return;
+    return watchSystemTheme(() => applyTheme("system"));
+  }, [settings.theme]);
+
+  useEffect(() => {
+    saveSettings(settings);
+  }, [settings]);
+
+  // Tell the Rust side whether closing the window should hide to the tray.
+  useEffect(() => {
+    invoke("set_close_to_tray", { enabled: settings.closeToTray }).catch(() => {});
+  }, [settings.closeToTray]);
+
+  function updateSettings(patch: Partial<Settings>) {
+    setSettings((prev) => ({ ...prev, ...patch }));
+  }
+
+  async function exportData(): Promise<string> {
+    const path = await saveFileDialog({
+      defaultPath: "checkd-export.json",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!path) return "Export cancelled.";
+    const contents = JSON.stringify({ lists }, null, 2);
+    await invoke("export_data", { path, contents });
+    return `Exported to ${path}`;
+  }
+
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50 text-gray-900">
+    <div className="flex h-screen overflow-hidden bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
       <Sidebar
         lists={lists}
         selectedId={selectedId}
@@ -97,6 +135,7 @@ function App() {
         onRename={renameList}
         onDelete={deleteList}
         onSetColor={setListColor}
+        onOpenSettings={() => setShowSettings(true)}
       />
 
       <main className="flex-1 overflow-y-auto p-6">
@@ -114,10 +153,21 @@ function App() {
         ) : (
           <>
             <h1 className="text-2xl font-bold">checkd</h1>
-            <p className="text-gray-500">Create a list with “+ New List” to get started.</p>
+            <p className="text-gray-500 dark:text-gray-400">
+              Create a list with “+ New List” to get started.
+            </p>
           </>
         )}
       </main>
+
+      {showSettings && (
+        <SettingsDialog
+          settings={settings}
+          onChange={updateSettings}
+          onExport={exportData}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   );
 }
