@@ -20,7 +20,10 @@ function App() {
   }
 
   function addTask(listId: string, title: string) {
-    updateTasks(listId, (tasks) => [...tasks, { id: crypto.randomUUID(), title }]);
+    updateTasks(listId, (tasks) => [
+      ...tasks,
+      { id: crypto.randomUUID(), title, dueDate: null },
+    ]);
   }
 
   function renameTask(listId: string, taskId: string, title: string) {
@@ -31,6 +34,12 @@ function App() {
 
   function deleteTask(listId: string, taskId: string) {
     updateTasks(listId, (tasks) => tasks.filter((t) => t.id !== taskId));
+  }
+
+  function setTaskDueDate(listId: string, taskId: string, dueDate: string | null) {
+    updateTasks(listId, (tasks) =>
+      tasks.map((t) => (t.id === taskId ? { ...t, dueDate } : t)),
+    );
   }
 
   function setListColor(id: string, color: string) {
@@ -67,6 +76,7 @@ function App() {
             onAdd={addTask}
             onRename={renameTask}
             onDelete={deleteTask}
+            onSetDueDate={setTaskDueDate}
           />
         ) : (
           <>

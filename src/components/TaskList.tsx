@@ -7,9 +7,16 @@ type TaskListProps = {
   onAdd: (listId: string, title: string) => void;
   onRename: (listId: string, taskId: string, title: string) => void;
   onDelete: (listId: string, taskId: string) => void;
+  onSetDueDate: (listId: string, taskId: string, dueDate: string | null) => void;
 };
 
-export default function TaskList({ list, onAdd, onRename, onDelete }: TaskListProps) {
+export default function TaskList({
+  list,
+  onAdd,
+  onRename,
+  onDelete,
+  onSetDueDate,
+}: TaskListProps) {
   const [draft, setDraft] = useState("");
 
   function submitNewTask(e: FormEvent) {
@@ -49,6 +56,9 @@ export default function TaskList({ list, onAdd, onRename, onDelete }: TaskListPr
               task={task}
               onRename={(taskId, title) => onRename(list.id, taskId, title)}
               onDelete={(taskId) => onDelete(list.id, taskId)}
+              onSetDueDate={(taskId, dueDate) =>
+                onSetDueDate(list.id, taskId, dueDate)
+              }
             />
           ))
         )}
