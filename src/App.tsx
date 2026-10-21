@@ -22,7 +22,7 @@ function App() {
   function addTask(listId: string, title: string) {
     updateTasks(listId, (tasks) => [
       ...tasks,
-      { id: crypto.randomUUID(), title, dueDate: null },
+      { id: crypto.randomUUID(), title, dueDate: null, dueTime: null },
     ]);
   }
 
@@ -38,7 +38,18 @@ function App() {
 
   function setTaskDueDate(listId: string, taskId: string, dueDate: string | null) {
     updateTasks(listId, (tasks) =>
-      tasks.map((t) => (t.id === taskId ? { ...t, dueDate } : t)),
+      tasks.map((t) =>
+        t.id === taskId
+          ? // Time is only valid alongside a date — drop it when the date goes.
+            { ...t, dueDate, dueTime: dueDate ? t.dueTime : null }
+          : t,
+      ),
+    );
+  }
+
+  function setTaskDueTime(listId: string, taskId: string, dueTime: string | null) {
+    updateTasks(listId, (tasks) =>
+      tasks.map((t) => (t.id === taskId ? { ...t, dueTime } : t)),
     );
   }
 
@@ -77,6 +88,7 @@ function App() {
             onRename={renameTask}
             onDelete={deleteTask}
             onSetDueDate={setTaskDueDate}
+            onSetDueTime={setTaskDueTime}
           />
         ) : (
           <>

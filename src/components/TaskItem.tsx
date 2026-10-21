@@ -6,6 +6,7 @@ type TaskItemProps = {
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onSetDueDate: (id: string, dueDate: string | null) => void;
+  onSetDueTime: (id: string, dueTime: string | null) => void;
 };
 
 const TRASH_ICON =
@@ -26,6 +27,15 @@ function formatDueDate(dueDate: string): string {
   });
 }
 
+/** Format HH:MM as e.g. "5:30 PM". */
+function formatDueTime(dueTime: string): string {
+  const [h, m] = dueTime.split(":").map(Number);
+  return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /** Today as YYYY-MM-DD in local time (string-comparable with stored due dates). */
 function todayString(): string {
   const now = new Date();
@@ -33,9 +43,29 @@ function todayString(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** A due date counts as overdue (negative/red) once it is before today. */
-function isOverdue(dueDate: string): boolean {
-  return dueDate < todayString();
+/** Current time as HH:MM in local time (string-comparable with stored due times). */
+function nowTimeString(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+}
+
+/**
+ * Overdue (negative/red) when the date is before today; for a date equal to
+ * today, overdue once the due time has passed (or not yet, if no time set).
+ */
+function isOverdue(task: Task): boolean {
+  if (!task.dueDate) return false;
+  const today = todayString();
+  if (task.dueDate !== today) return task.dueDate < today;
+  return task.dueTime !== null && task.dueTime < nowTimeString();
+}
+
+/** Combined label like "Oct 24, 2026 · 5:30 PM". */
+function dueLabel(task: Task): string {
+  if (!task.dueDate) return "";
+  const date = formatDueDate(task.dueDate);
+  return task.dueTime ? `${date} · ${formatDueTime(task.dueTime)}` : date;
 }
 
 export default function TaskItem({
@@ -43,6 +73,7 @@ export default function TaskItem({
   onRename,
   onDelete,
   onSetDueDate,
+  onSetDueTime,
 }: TaskItemProps) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
@@ -102,12 +133,12 @@ export default function TaskItem({
               {task.dueDate && (
                 <span
                   className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                    isOverdue(task.dueDate)
+                    isOverdue(task)
                       ? "bg-red-50 text-red-600"
                       : "bg-gray-100 text-gray-600"
                   }`}
                 >
-                  {formatDueDate(task.dueDate)}
+                  {dueLabel(task)}
                 </span>
               )}
             </span>
@@ -162,7 +193,7 @@ export default function TaskItem({
                 className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
                   !task.dueDate
                     ? "border-gray-300 text-gray-600 hover:bg-white"
-                    : isOverdue(task.dueDate)
+                    : isOverdue(task)
                       ? "border-red-200 bg-red-50 text-red-600"
                       : "border-blue-200 bg-blue-50 text-blue-700"
                 }`}
@@ -177,8 +208,18 @@ export default function TaskItem({
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d={CALENDAR_ICON} />
                 </svg>
-                {task.dueDate ? formatDueDate(task.dueDate) : "Set due date"}
+                {task.dueDate ? dueLabel(task) : "Set due date"}
               </button>
+            )}
+
+            {task.dueDate && (
+              <input
+                type="time"
+                value={task.dueTime ?? ""}
+                onChange={(e) => onSetDueTime(task.id, e.currentTarget.value || null)}
+                aria-label="Due time"
+                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400"
+              />
             )}
 
             {task.dueDate && !picking && (
