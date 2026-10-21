@@ -7,6 +7,7 @@ type TaskItemProps = {
   onDelete: (id: string) => void;
   onSetDueDate: (id: string, dueDate: string | null) => void;
   onSetDueTime: (id: string, dueTime: string | null) => void;
+  onSetDescription: (id: string, description: string) => void;
 };
 
 const TRASH_ICON =
@@ -74,6 +75,7 @@ export default function TaskItem({
   onDelete,
   onSetDueDate,
   onSetDueTime,
+  onSetDescription,
 }: TaskItemProps) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
@@ -166,7 +168,7 @@ export default function TaskItem({
         </button>
       </div>
 
-      {/* Accordion panel: due date controls */}
+      {/* Accordion panel: due date controls + description */}
       <div
         className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${
           open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
@@ -231,6 +233,16 @@ export default function TaskItem({
                 Clear
               </button>
             )}
+          </div>
+
+          <div className="px-3 pb-2 pl-9">
+            <textarea
+              value={task.description}
+              onChange={(e) => onSetDescription(task.id, e.currentTarget.value)}
+              placeholder="Add a description..."
+              rows={2}
+              className="w-full resize-none rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400"
+            />
           </div>
         </div>
       </div>

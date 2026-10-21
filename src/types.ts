@@ -1,6 +1,7 @@
 export type Task = {
   id: string;
   title: string;
+  description: string;
   /** Due date as YYYY-MM-DD, or null when unset. */
   dueDate: string | null;
   /** Due time as HH:MM (24h); only meaningful while dueDate is set. */

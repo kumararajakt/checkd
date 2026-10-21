@@ -9,6 +9,7 @@ type TaskListProps = {
   onDelete: (listId: string, taskId: string) => void;
   onSetDueDate: (listId: string, taskId: string, dueDate: string | null) => void;
   onSetDueTime: (listId: string, taskId: string, dueTime: string | null) => void;
+  onSetDescription: (listId: string, taskId: string, description: string) => void;
 };
 
 export default function TaskList({
@@ -18,6 +19,7 @@ export default function TaskList({
   onDelete,
   onSetDueDate,
   onSetDueTime,
+  onSetDescription,
 }: TaskListProps) {
   const [draft, setDraft] = useState("");
 
@@ -63,6 +65,9 @@ export default function TaskList({
               }
               onSetDueTime={(taskId, dueTime) =>
                 onSetDueTime(list.id, taskId, dueTime)
+              }
+              onSetDescription={(taskId, description) =>
+                onSetDescription(list.id, taskId, description)
               }
             />
           ))

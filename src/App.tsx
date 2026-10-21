@@ -22,7 +22,13 @@ function App() {
   function addTask(listId: string, title: string) {
     updateTasks(listId, (tasks) => [
       ...tasks,
-      { id: crypto.randomUUID(), title, dueDate: null, dueTime: null },
+      {
+        id: crypto.randomUUID(),
+        title,
+        description: "",
+        dueDate: null,
+        dueTime: null,
+      },
     ]);
   }
 
@@ -50,6 +56,12 @@ function App() {
   function setTaskDueTime(listId: string, taskId: string, dueTime: string | null) {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, dueTime } : t)),
+    );
+  }
+
+  function setTaskDescription(listId: string, taskId: string, description: string) {
+    updateTasks(listId, (tasks) =>
+      tasks.map((t) => (t.id === taskId ? { ...t, description } : t)),
     );
   }
 
@@ -89,6 +101,7 @@ function App() {
             onDelete={deleteTask}
             onSetDueDate={setTaskDueDate}
             onSetDueTime={setTaskDueTime}
+            onSetDescription={setTaskDescription}
           />
         ) : (
           <>
