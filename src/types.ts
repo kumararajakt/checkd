@@ -38,6 +38,15 @@ export type Task = {
   /** Due time as HH:MM (24h); only meaningful while dueDate is set. */
   dueTime: string | null;
   repeat: Repeat | null;
+  /** Whether the active occurrence is done. */
+  completed: boolean;
+  /**
+   * Date of the active occurrence of a repeating task (YYYY-MM-DD). The
+   * occurrence advances every time the task is completed.
+   */
+  nextOccurrence: string | null;
+  /** How many occurrences of the series have been completed. */
+  occurrenceIndex: number;
 };
 
 export type List = {

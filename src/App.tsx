@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import {
+  isPermissionGranted,
+  requestPermission,
+} from "@tauri-apps/plugin-notification";
 import Sidebar from "./components/Sidebar";
 import SettingsDialog from "./components/SettingsDialog";
 import TaskList from "./components/TaskList";
@@ -9,6 +14,9 @@ import { applyTheme, loadSettings, saveSettings, watchSystemTheme } from "./sett
 import type { Settings } from "./settings";
 import type { List, Repeat, Task } from "./types";
 
+/** How often the UI refreshes time-dependent state (overdue colours). */
+const CLOCK_TICK_MS = 30_000;
+
 function App() {
   const [lists, setLists] = useState<List[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -16,6 +24,8 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Current time — refreshed on a timer so overdue states stay accurate. */
+  const [now, setNow] = useState(() => new Date());
 
   // Load the database on startup.
   useEffect(() => {
@@ -25,10 +35,38 @@ function App() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Keep the clock ticking — without it an overdue task would keep its old
+  // colour until something else re-rendered the list.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), CLOCK_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Desktop notifications have to be allowed (macOS/Windows ask; Linux does
+  // not). The reminders themselves are sent from the Rust side.
+  useEffect(() => {
+    isPermissionGranted()
+      .then((granted) => (granted ? null : requestPermission()))
+      .catch(() => {});
+  }, []);
+
+  // The scheduler moves repeating tasks on when an occurrence was missed —
+  // reload so the list shows where the series actually stands.
+  useEffect(() => {
+    const unlisten = listen("data-changed", () => {
+      db.load()
+        .then((data) => setLists(data.lists))
+        .catch(() => {});
+    });
+    return () => {
+      unlisten.then((off) => off()).catch(() => {});
+    };
+  }, []);
+
   // Writes are optimistic: the UI updates first, then we persist. If a write
   // fails we resync from the database so the UI never drifts from disk.
-  function persist(write: Promise<unknown>) {
-    write.catch(async (err) => {
+  function persist(write: Promise<unknown>): Promise<unknown> {
+    return write.catch(async (err) => {
       setError(`Could not save changes: ${err}`);
       try {
         const data = await db.load();
@@ -64,6 +102,9 @@ function App() {
       dueDate: null,
       dueTime: null,
       repeat: null,
+      completed: false,
+      nextOccurrence: null,
+      occurrenceIndex: 0,
     };
     updateTasks(listId, (tasks) => [...tasks, task]);
     persist(db.createTask(task.id, listId, task.title));
@@ -109,7 +150,30 @@ function App() {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, repeat } : t)),
     );
-    persist(db.setTaskRepeat(taskId, repeat));
+    // The database anchors the rule to an occurrence — take the saved task
+    // back so the next occurrence shows up right away.
+    persist(
+      db.setTaskRepeat(taskId, repeat).then((updated) => {
+        updateTasks(listId, (tasks) =>
+          tasks.map((t) => (t.id === taskId ? updated : t)),
+        );
+      }),
+    );
+  }
+
+  function setTaskCompleted(listId: string, taskId: string, completed: boolean) {
+    updateTasks(listId, (tasks) =>
+      tasks.map((t) => (t.id === taskId ? { ...t, completed } : t)),
+    );
+    // The database owns the series: completing a repeating task advances it to
+    // its next occurrence, so take the saved task back once it is written.
+    persist(
+      db.setTaskCompleted(taskId, completed).then((updated) => {
+        updateTasks(listId, (tasks) =>
+          tasks.map((t) => (t.id === taskId ? updated : t)),
+        );
+      }),
+    );
   }
 
   function setListColor(id: string, color: string) {
@@ -180,6 +244,7 @@ function App() {
         ) : selected ? (
           <TaskList
             list={selected}
+            now={now}
             onAdd={addTask}
             onRename={renameTask}
             onDelete={deleteTask}
@@ -187,6 +252,7 @@ function App() {
             onSetDueTime={setTaskDueTime}
             onSetDescription={setTaskDescription}
             onSetRepeat={setTaskRepeat}
+            onSetCompleted={setTaskCompleted}
           />
         ) : (
           <>

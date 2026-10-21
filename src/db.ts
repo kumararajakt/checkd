@@ -6,7 +6,7 @@
  * immediately and `persist` resyncs from the database if a write fails.
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { AppData, Repeat } from "./types";
+import type { AppData, Repeat, Task } from "./types";
 
 export const db = {
   load: () => invoke<AppData>("load_data"),
@@ -34,8 +34,19 @@ export const db = {
   setTaskDescription: (id: string, description: string) =>
     invoke<void>("set_task_description", { id, description }),
 
+  /**
+   * Sets the repeat rule. The returned task carries the new state — the
+   * active occurrence is anchored to the rule.
+   */
   setTaskRepeat: (id: string, repeat: Repeat | null) =>
-    invoke<void>("set_task_repeat", { id, repeat }),
+    invoke<Task>("set_task_repeat", { id, repeat }),
+
+  /**
+   * Marks a task done. The returned task carries the new state — a repeating
+   * task has already advanced to its next occurrence.
+   */
+  setTaskCompleted: (id: string, completed: boolean) =>
+    invoke<Task>("set_task_completed", { id, completed }),
 
   deleteTask: (id: string) => invoke<void>("delete_task", { id }),
 };

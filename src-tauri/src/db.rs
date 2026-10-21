@@ -6,9 +6,12 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
+
+use crate::repeat;
 
 /// One task, stored in the `tasks` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,6 +25,48 @@ pub struct Task {
     /// `HH:MM` (24h) or null.
     pub due_time: Option<String>,
     pub repeat: Option<Repeat>,
+    /// Whether the active occurrence is done.
+    pub completed: bool,
+    /// Date of the active occurrence (repeating tasks only).
+    pub next_occurrence: Option<String>,
+    /// Index of the active occurrence within the series.
+    pub occurrence_index: i64,
+    /// Key of the notification already sent for the active occurrence.
+    /// Internal — never sent to the frontend.
+    #[serde(skip_serializing, default)]
+    pub notified_key: Option<String>,
+}
+
+impl Task {
+    /// The moment this task is due, plus a key identifying that occurrence.
+    ///
+    /// Repeating tasks are due at their active occurrence; one-off tasks at
+    /// their due date. Tasks without a due time are due at 09:00 on the due
+    /// day.
+    pub fn due_moment(&self) -> Option<(NaiveDateTime, String)> {
+        if self.completed {
+            return None;
+        }
+
+        let (date, time, key) = match (&self.repeat, &self.next_occurrence) {
+            (Some(rule), Some(occurrence)) => {
+                let date = repeat::parse_date(occurrence)?;
+                let time = parse_time(rule.time.as_deref());
+                (date, time, format!("occ:{occurrence}"))
+            }
+            _ => {
+                let date = repeat::parse_date(self.due_date.as_deref()?)?;
+                let time = parse_time(self.due_time.as_deref());
+                let key = match &self.due_time {
+                    Some(time) => format!("due:{}T{}", self.due_date.as_deref()?, time),
+                    None => format!("due:{}", self.due_date.as_deref()?),
+                };
+                (date, time, key)
+            }
+        };
+
+        Some((date.and_time(time), key))
+    }
 }
 
 /// One list, with its tasks nested in display order.
@@ -39,6 +84,13 @@ pub struct List {
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
     pub lists: Vec<List>,
+}
+
+/// A task together with the list it belongs to (used by the notifier).
+#[derive(Debug, Clone)]
+pub struct TaskWithList {
+    pub task: Task,
+    pub list_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,6 +244,169 @@ impl Db {
         Ok(AppData { lists })
     }
 
+    /// All tasks with their list name — the notifier's work list.
+    pub fn tasks_for_notifications(&self) -> Result<Vec<TaskWithList>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT t.id, t.title, t.description, t.due_date, t.due_time, t.repeat_json,
+                        t.completed, t.next_occurrence, t.occurrence_index, t.notified_key,
+                        l.name
+                 FROM tasks t JOIN lists l ON l.id = t.list_id",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let repeat_json: Option<String> = row.get(5)?;
+                Ok(TaskWithList {
+                    task: Task {
+                        id: row.get(0)?,
+                        title: row.get(1)?,
+                        description: row.get(2)?,
+                        due_date: row.get(3)?,
+                        due_time: row.get(4)?,
+                        repeat: repeat_json.and_then(|json| serde_json::from_str(&json).ok()),
+                        completed: row.get::<_, i64>(6)? != 0,
+                        next_occurrence: row.get(7)?,
+                        occurrence_index: row.get(8)?,
+                        notified_key: row.get(9)?,
+                    },
+                    list_name: row.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+    }
+
+    /// Advances repeating tasks whose occurrence was missed.
+    ///
+    /// The pointer normally moves on when an occurrence is completed. When it
+    /// is not, the series would stall — so once the *next* occurrence is due,
+    /// the missed one is dropped and the pointer moves on. That keeps the
+    /// reminders coming (like a habit tracker) instead of going silent after
+    /// a single missed day.
+    ///
+    /// Returns whether any task moved on.
+    pub fn roll_forward_missed(&self, now: NaiveDateTime) -> Result<bool, String> {
+        let tasks = self.tasks_for_notifications()?;
+        let mut changed = false;
+
+        for entry in tasks {
+            let task = &entry.task;
+            let Some(rule) = task.repeat.as_ref() else {
+                continue;
+            };
+            let Some(current) = task
+                .next_occurrence
+                .as_deref()
+                .and_then(repeat::parse_date)
+            else {
+                continue;
+            };
+
+            // Walk forward while the following occurrence is already due.
+            let mut occurrence = current;
+            let mut index = task.occurrence_index;
+            while let Some(next) = repeat::next_after(rule, occurrence) {
+                if occurrence_moment(next, rule) > now {
+                    break;
+                }
+                occurrence = next;
+                index += 1;
+            }
+
+            if occurrence == current {
+                continue;
+            }
+            changed = true;
+
+            if series_ended(rule, index) {
+                // The series is over: the task becomes a plain completed task.
+                self.conn()
+                    .execute(
+                        "UPDATE tasks
+                         SET completed = 1, repeat_json = NULL, next_occurrence = NULL,
+                             occurrence_index = ?2, notified_key = NULL
+                         WHERE id = ?1",
+                        params![task.id, index],
+                    )
+                    .map_err(|e| e.to_string())?;
+            } else {
+                self.conn()
+                    .execute(
+                        "UPDATE tasks
+                         SET completed = 0, next_occurrence = ?2, occurrence_index = ?3,
+                             notified_key = NULL
+                         WHERE id = ?1",
+                        params![task.id, repeat::format_date(occurrence), index],
+                    )
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        Ok(changed)
+    }
+
+    /// Forgets which reminders were already sent.
+    ///
+    /// Called once when the app starts: every launch is a fresh reminder
+    /// session, so whatever is overdue is brought up again — even when it was
+    /// already reminded about in an earlier session.
+    pub fn reset_notifications(&self) -> Result<(), String> {
+        self.conn()
+            .execute("UPDATE tasks SET notified_key = NULL", [])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Records that the notification for an occurrence was sent.
+    pub fn mark_notified(&self, id: &str, key: &str) -> Result<(), String> {
+        self.conn()
+            .execute(
+                "UPDATE tasks SET notified_key = ?2 WHERE id = ?1",
+                params![id, key],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Reads a single task.
+    pub fn get_task(&self, id: &str) -> Result<Option<Task>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, title, description, due_date, due_time, repeat_json, completed,
+                        next_occurrence, occurrence_index, notified_key
+                 FROM tasks WHERE id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                let repeat_json: Option<String> = row.get(5)?;
+                Ok(Task {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    due_date: row.get(3)?,
+                    due_time: row.get(4)?,
+                    repeat: repeat_json.and_then(|json| serde_json::from_str(&json).ok()),
+                    completed: row.get::<_, i64>(6)? != 0,
+                    next_occurrence: row.get(7)?,
+                    occurrence_index: row.get(8)?,
+                    notified_key: row.get(9)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(|e| e.to_string())?)),
+            None => Ok(None),
+        }
+    }
+
     pub fn create_list(&self, id: &str, name: &str, color: &str) -> Result<(), String> {
         self.conn()
             .execute(
@@ -264,7 +479,9 @@ impl Db {
                 params![id, due_date, due_time],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.refresh_notification_state(id)
     }
 
     pub fn set_task_description(&self, id: &str, description: &str) -> Result<(), String> {
@@ -277,15 +494,146 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    pub fn set_task_repeat(&self, id: &str, repeat: Option<&Repeat>) -> Result<(), String> {
-        let encoded = match repeat {
-            Some(rule) => Some(serde_json::to_string(rule).map_err(|e| e.to_string())?),
-            None => None,
+    /// Sets (or clears) the repeat rule and re-anchors the active occurrence.
+    pub fn set_task_repeat(&self, id: &str, repeat: Option<&Repeat>) -> Result<Task, String> {
+        let (encoded, next_occurrence) = match repeat {
+            Some(rule) => {
+                let encoded = serde_json::to_string(rule).map_err(|e| e.to_string())?;
+                let today = chrono::Local::now().date_naive();
+                let next = repeat::first_at_or_after(rule, today).map(repeat::format_date);
+                (Some(encoded), next)
+            }
+            None => (None, None),
         };
+
         self.conn()
             .execute(
-                "UPDATE tasks SET repeat_json = ?2 WHERE id = ?1",
-                params![id, encoded],
+                "UPDATE tasks
+                 SET repeat_json = ?2, next_occurrence = ?3, occurrence_index = 0, notified_key = NULL
+                 WHERE id = ?1",
+                params![id, encoded, next_occurrence],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())?;
+
+        self.refresh_notification_state(id)?;
+        self.get_task(id)?.ok_or_else(|| format!("no task with id {id}"))
+    }
+
+    /// Marks a task done (or not done).
+    ///
+    /// Completing the active occurrence of a repeating task advances the
+    /// series to its next occurrence; when the series has run out, the rule is
+    /// cleared and the task stays completed.
+    pub fn set_task_completed(&self, id: &str, completed: bool) -> Result<Task, String> {
+        let Some(mut task) = self.get_task(id)? else {
+            return Err(format!("no task with id {id}"));
+        };
+
+        if !completed {
+            self.update_completion(
+                id,
+                false,
+                task.next_occurrence.clone(),
+                task.occurrence_index,
+            )?;
+            self.refresh_notification_state(id)?;
+            task.completed = false;
+            return Ok(task);
+        }
+
+        let Some(rule) = task.repeat.clone() else {
+            self.update_completion(id, true, None, 0)?;
+            self.refresh_notification_state(id)?;
+            task.completed = true;
+            task.notified_key = None;
+            return Ok(task);
+        };
+
+        let index = task.occurrence_index + 1;
+        let ended = series_ended(&rule, index);
+
+        let current = task
+            .next_occurrence
+            .as_deref()
+            .and_then(repeat::parse_date)
+            .or_else(|| repeat::parse_date(rule.start.as_str()));
+
+        let next = if ended {
+            None
+        } else {
+            current.and_then(|current| repeat::next_after(&rule, current))
+        };
+
+        if next.is_none() {
+            // The series is over: the task becomes a plain completed task.
+            self.conn()
+                .execute(
+                    "UPDATE tasks
+                     SET completed = 1, repeat_json = NULL, next_occurrence = NULL,
+                         occurrence_index = ?2, notified_key = NULL
+                     WHERE id = ?1",
+                    params![id, index],
+                )
+                .map_err(|e| e.to_string())?;
+        } else {
+            self.conn()
+                .execute(
+                    "UPDATE tasks
+                     SET completed = 0, next_occurrence = ?2, occurrence_index = ?3, notified_key = NULL
+                     WHERE id = ?1",
+                    params![id, next, index],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+
+        self.refresh_notification_state(id)?;
+        self.get_task(id)?.ok_or_else(|| format!("no task with id {id}"))
+    }
+
+    /// Decides whether the current occurrence still deserves a reminder.
+    ///
+    /// An occurrence whose moment has already passed when the user sets it is
+    /// marked as handled — the user just saw it, so no notification is sent.
+    /// Everything else stays open, so the scheduler reminds the user when the
+    /// moment arrives (or once on the next launch, if the app was closed).
+    fn refresh_notification_state(&self, id: &str) -> Result<(), String> {
+        let key = match self.get_task(id)? {
+            Some(task) => match task.due_moment() {
+                Some((moment, key)) => {
+                    if moment <= chrono::Local::now().naive_local() {
+                        Some(key)
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            },
+            None => None,
+        };
+
+        self.conn()
+            .execute(
+                "UPDATE tasks SET notified_key = ?2 WHERE id = ?1",
+                params![id, key],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    fn update_completion(
+        &self,
+        id: &str,
+        completed: bool,
+        next_occurrence: Option<String>,
+        occurrence_index: i64,
+    ) -> Result<(), String> {
+        self.conn()
+            .execute(
+                "UPDATE tasks
+                 SET completed = ?2, next_occurrence = ?3, occurrence_index = ?4, notified_key = NULL
+                 WHERE id = ?1",
+                params![id, completed as i64, next_occurrence, occurrence_index],
             )
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -299,10 +647,28 @@ impl Db {
     }
 }
 
+/// Parses a `HH:MM` time; tasks without one are due at 09:00.
+fn parse_time(value: Option<&str>) -> NaiveTime {
+    value
+        .and_then(|value| NaiveTime::parse_from_str(value, "%H:%M").ok())
+        .unwrap_or_else(|| NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"))
+}
+
+/// The moment a repeat occurrence is due.
+fn occurrence_moment(date: NaiveDate, rule: &Repeat) -> NaiveDateTime {
+    date.and_time(parse_time(rule.time.as_deref()))
+}
+
+/// Whether the series has run out of occurrences at `index`.
+fn series_ended(rule: &Repeat, index: i64) -> bool {
+    matches!(rule.end, RepeatEnd::After { count } if index >= count)
+}
+
 fn load_tasks(conn: &Connection, list_id: &str) -> Result<Vec<Task>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, title, description, due_date, due_time, repeat_json
+            "SELECT id, title, description, due_date, due_time, repeat_json, completed,
+                    next_occurrence, occurrence_index, notified_key
              FROM tasks WHERE list_id = ?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
@@ -317,6 +683,10 @@ fn load_tasks(conn: &Connection, list_id: &str) -> Result<Vec<Task>, String> {
                 due_date: row.get(3)?,
                 due_time: row.get(4)?,
                 repeat: repeat_json.and_then(|json| serde_json::from_str(&json).ok()),
+                completed: row.get::<_, i64>(6)? != 0,
+                next_occurrence: row.get(7)?,
+                occurrence_index: row.get(8)?,
+                notified_key: row.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -346,7 +716,35 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
 
          CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);",
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    // Columns added after the first release — ALTER TABLE for existing files.
+    let mut stmt = conn
+        .prepare("PRAGMA table_info(tasks)")
+        .map_err(|e| e.to_string())?;
+    let existing = stmt
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(stmt);
+
+    for (name, declaration) in [
+        ("completed", "INTEGER NOT NULL DEFAULT 0"),
+        ("next_occurrence", "TEXT"),
+        ("occurrence_index", "INTEGER NOT NULL DEFAULT 0"),
+        ("notified_key", "TEXT"),
+    ] {
+        if !existing.iter().any(|column| column == name) {
+            conn.execute(
+                &format!("ALTER TABLE tasks ADD COLUMN {name} {declaration}"),
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -357,6 +755,26 @@ mod tests {
         let path = std::env::temp_dir().join(format!("checkd-test-{name}.db"));
         let _ = std::fs::remove_file(&path);
         Db::open_path(&path).expect("open temp db")
+    }
+
+    /// A local date and time, e.g. 2030-01-02 09:00.
+    fn moment(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
+        NaiveDate::from_ymd_opt(year, month, day)
+            .unwrap()
+            .and_hms_opt(hour, minute, 0)
+            .unwrap()
+    }
+
+    fn daily_rule(start: &str) -> Repeat {
+        Repeat {
+            unit: RepeatUnit::Day,
+            interval: 1,
+            start: start.to_string(),
+            time: Some("09:00".to_string()),
+            weekdays: Vec::new(),
+            month_repeat: None,
+            end: RepeatEnd::Never,
+        }
     }
 
     #[test]
@@ -444,5 +862,188 @@ mod tests {
         let tasks = &data.lists[0].tasks;
         assert_eq!(tasks[0].title, "first");
         assert_eq!(tasks[1].title, "second");
+    }
+
+    #[test]
+    fn completing_a_repeating_task_advances_to_the_next_occurrence() {
+        let db = temp_db("advance");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Water plants").unwrap();
+
+        let rule = daily_rule("2026-10-21");
+        db.set_task_repeat("t1", Some(&rule)).unwrap();
+
+        let task = db.get_task("t1").unwrap().unwrap();
+        assert!(task.next_occurrence.is_some());
+        let first = task.next_occurrence.clone().unwrap();
+
+        let updated = db.set_task_completed("t1", true).unwrap();
+        assert!(!updated.completed, "the next occurrence is pending again");
+        assert_ne!(updated.next_occurrence, Some(first.clone()));
+        assert_eq!(updated.occurrence_index, 1);
+    }
+
+    #[test]
+    fn completing_the_last_occurrence_clears_the_rule() {
+        let db = temp_db("series-end");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Once").unwrap();
+
+        let mut rule = daily_rule("2026-10-21");
+        rule.end = RepeatEnd::After { count: 1 };
+        db.set_task_repeat("t1", Some(&rule)).unwrap();
+
+        let updated = db.set_task_completed("t1", true).unwrap();
+        assert!(updated.completed);
+        assert!(updated.repeat.is_none(), "the series is over");
+        assert!(updated.next_occurrence.is_none());
+    }
+
+    #[test]
+    fn an_existing_database_gets_the_new_columns() {
+        let path = std::env::temp_dir().join("checkd-test-migration.db");
+        let _ = std::fs::remove_file(&path);
+
+        // A database from before tasks could be completed.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE lists (
+                     id TEXT PRIMARY KEY, name TEXT NOT NULL, color TEXT NOT NULL, position INTEGER NOT NULL
+                 );
+                 CREATE TABLE tasks (
+                     id TEXT PRIMARY KEY,
+                     list_id TEXT NOT NULL REFERENCES lists(id) ON DELETE CASCADE,
+                     title TEXT NOT NULL,
+                     description TEXT NOT NULL DEFAULT '',
+                     due_date TEXT,
+                     due_time TEXT,
+                     repeat_json TEXT,
+                     position INTEGER NOT NULL
+                 );",
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO lists (id, name, color, position) VALUES ('l1', 'Old', '#fff', 1)",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO tasks (id, list_id, title, position) VALUES ('t1', 'l1', 'Legacy', 1)",
+                [],
+            )
+            .unwrap();
+        }
+
+        // Opening it with the current code migrates it in place.
+        let db = Db::open_path(&path).unwrap();
+        let data = db.load().unwrap();
+        let task = &data.lists[0].tasks[0];
+
+        assert_eq!(task.title, "Legacy");
+        assert!(!task.completed);
+        assert_eq!(task.next_occurrence, None);
+        assert_eq!(task.occurrence_index, 0);
+    }
+
+    #[test]
+    fn a_missed_occurrence_rolls_forward() {
+        let db = temp_db("rollforward");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Water plants").unwrap();
+
+        // A rule in the future keeps the test independent of the current date.
+        let rule = daily_rule("2030-01-01");
+        db.set_task_repeat("t1", Some(&rule)).unwrap();
+        assert_eq!(
+            db.get_task("t1").unwrap().unwrap().next_occurrence.as_deref(),
+            Some("2030-01-01")
+        );
+
+        // The next occurrence is not due yet — nothing moves.
+        let before = moment(2030, 1, 1, 8, 0);
+        assert!(!db.roll_forward_missed(before).unwrap());
+        assert_eq!(
+            db.get_task("t1").unwrap().unwrap().next_occurrence.as_deref(),
+            Some("2030-01-01")
+        );
+
+        // Once it is due, the missed occurrence is dropped and the series
+        // continues — the reminders keep coming.
+        let after = moment(2030, 1, 2, 9, 0);
+        assert!(db.roll_forward_missed(after).unwrap());
+
+        let task = db.get_task("t1").unwrap().unwrap();
+        assert_eq!(task.next_occurrence.as_deref(), Some("2030-01-02"));
+        assert_eq!(task.occurrence_index, 1);
+        assert!(!task.completed);
+        assert!(task.repeat.is_some(), "the series is still running");
+    }
+
+    #[test]
+    fn rolling_forward_can_end_a_series() {
+        let db = temp_db("rollforward-end");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Once a day").unwrap();
+
+        let mut rule = daily_rule("2030-01-01");
+        rule.end = RepeatEnd::After { count: 2 };
+        db.set_task_repeat("t1", Some(&rule)).unwrap();
+
+        // First missed occurrence — the series has one left.
+        db.roll_forward_missed(moment(2030, 1, 2, 9, 0))
+            .unwrap();
+        let task = db.get_task("t1").unwrap().unwrap();
+        assert_eq!(task.next_occurrence.as_deref(), Some("2030-01-02"));
+        assert!(task.repeat.is_some());
+
+        // Second one — the series is over.
+        db.roll_forward_missed(moment(2030, 1, 3, 9, 0))
+            .unwrap();
+        let task = db.get_task("t1").unwrap().unwrap();
+        assert!(task.completed);
+        assert!(task.repeat.is_none(), "the series is over");
+        assert_eq!(task.next_occurrence, None);
+    }
+
+    #[test]
+    fn a_new_session_reminds_about_overdue_tasks_again() {
+        let db = temp_db("reset-notifications");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Milk").unwrap();
+
+        // The reminder for this occurrence went out in an earlier session.
+        db.mark_notified("t1", "due:2026-10-21").unwrap();
+        let tasks = db.tasks_for_notifications().unwrap();
+        assert_eq!(
+            tasks[0].task.notified_key.as_deref(),
+            Some("due:2026-10-21")
+        );
+
+        // Launching the app starts a fresh session — the task is mentioned
+        // again the next time the app is opened.
+        db.reset_notifications().unwrap();
+        let tasks = db.tasks_for_notifications().unwrap();
+        assert_eq!(tasks[0].task.notified_key, None);
+    }
+
+    #[test]
+    fn due_moment_uses_the_occurrence_for_repeating_tasks() {
+        let task = Task {
+            id: "t1".into(),
+            title: "Milk".into(),
+            description: String::new(),
+            due_date: None,
+            due_time: None,
+            repeat: Some(daily_rule("2026-10-21")),
+            completed: false,
+            next_occurrence: Some("2026-10-21".into()),
+            occurrence_index: 0,
+            notified_key: None,
+        };
+
+        let (moment, key) = task.due_moment().unwrap();
+        assert_eq!(moment.to_string(), "2026-10-21 09:00:00");
+        assert_eq!(key, "occ:2026-10-21");
     }
 }

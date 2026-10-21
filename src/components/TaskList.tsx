@@ -4,6 +4,8 @@ import TaskItem from "./TaskItem";
 
 type TaskListProps = {
   list: List;
+  /** Current time — used to decide which tasks are overdue. */
+  now: Date;
   onAdd: (listId: string, title: string) => void;
   onRename: (listId: string, taskId: string, title: string) => void;
   onDelete: (listId: string, taskId: string) => void;
@@ -11,10 +13,12 @@ type TaskListProps = {
   onSetDueTime: (listId: string, taskId: string, dueTime: string | null) => void;
   onSetDescription: (listId: string, taskId: string, description: string) => void;
   onSetRepeat: (listId: string, taskId: string, repeat: Repeat | null) => void;
+  onSetCompleted: (listId: string, taskId: string, completed: boolean) => void;
 };
 
 export default function TaskList({
   list,
+  now,
   onAdd,
   onRename,
   onDelete,
@@ -22,6 +26,7 @@ export default function TaskList({
   onSetDueTime,
   onSetDescription,
   onSetRepeat,
+  onSetCompleted,
 }: TaskListProps) {
   const [draft, setDraft] = useState("");
 
@@ -60,6 +65,7 @@ export default function TaskList({
             <TaskItem
               key={task.id}
               task={task}
+              now={now}
               onRename={(taskId, title) => onRename(list.id, taskId, title)}
               onDelete={(taskId) => onDelete(list.id, taskId)}
               onSetDueDate={(taskId, dueDate) =>
@@ -72,6 +78,9 @@ export default function TaskList({
                 onSetDescription(list.id, taskId, description)
               }
               onSetRepeat={(taskId, repeat) => onSetRepeat(list.id, taskId, repeat)}
+              onSetCompleted={(taskId, completed) =>
+                onSetCompleted(list.id, taskId, completed)
+              }
             />
           ))
         )}

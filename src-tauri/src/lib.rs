@@ -1,6 +1,8 @@
 // Add Tauri commands here: https://tauri.app/develop/calling-rust/
 // Remember to register each one in `tauri::generate_handler![...]` below.
 pub mod db;
+pub mod notify;
+pub mod repeat;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -8,7 +10,7 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Manager, State, WindowEvent};
 
-use crate::db::{AppData, Db, Repeat};
+use crate::db::{AppData, Db, Repeat, Task};
 
 const APP_ICON: tauri::image::Image<'static> = tauri::include_image!("icons/32x32.png");
 
@@ -82,9 +84,18 @@ fn set_task_description(db: State<'_, Db>, id: String, description: String) -> R
     db.set_task_description(&id, &description)
 }
 
+/// Sets (or clears) the repeat rule and returns the updated task — the active
+/// occurrence is anchored to the rule.
 #[tauri::command]
-fn set_task_repeat(db: State<'_, Db>, id: String, repeat: Option<Repeat>) -> Result<(), String> {
+fn set_task_repeat(db: State<'_, Db>, id: String, repeat: Option<Repeat>) -> Result<Task, String> {
     db.set_task_repeat(&id, repeat.as_ref())
+}
+
+/// Marks a task done (or not done) and returns its updated state — a
+/// repeating task advances to its next occurrence.
+#[tauri::command]
+fn set_task_completed(db: State<'_, Db>, id: String, completed: bool) -> Result<Task, String> {
+    db.set_task_completed(&id, completed)
 }
 
 #[tauri::command]
@@ -107,6 +118,7 @@ fn builder<R: tauri::Runtime>(db: Option<Db>) -> tauri::Builder<R> {
     let builder = tauri::Builder::<R>::new()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             set_close_to_tray,
             export_data,
@@ -120,6 +132,7 @@ fn builder<R: tauri::Runtime>(db: Option<Db>) -> tauri::Builder<R> {
             set_task_due,
             set_task_description,
             set_task_repeat,
+            set_task_completed,
             delete_task,
         ]);
 
@@ -134,6 +147,9 @@ pub fn run() {
     builder::<tauri::Wry>(None)
         .setup(|app| {
             app.manage(Db::open(app.handle())?);
+
+            // Reminders keep firing while the window is hidden in the tray.
+            notify::spawn(app.handle().clone());
 
             let show = MenuItem::with_id(app, "show", "Show checkd", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit checkd", true, None::<&str>)?;
@@ -333,5 +349,53 @@ mod ipc_tests {
         let response = ipc.call("load_data", serde_json::json!({})).expect("load_data");
         let data: AppData = response.deserialize().expect("deserialize app data");
         assert!(data.lists.is_empty());
+    }
+
+    /// Completing a repeating task through the IPC advances the series.
+    #[test]
+    fn completing_a_repeating_task_through_ipc_advances_it() {
+        let ipc = Ipc::new("complete");
+
+        ipc.call(
+            "create_list",
+            serde_json::json!({ "id": "l1", "name": "Home", "color": "#3b82f6" }),
+        )
+        .expect("create_list");
+
+        ipc.call(
+            "create_task",
+            serde_json::json!({ "id": "t1", "listId": "l1", "title": "Water plants" }),
+        )
+        .expect("create_task");
+
+        ipc.call(
+            "set_task_repeat",
+            serde_json::json!({
+                "id": "t1",
+                "repeat": {
+                    "unit": "day",
+                    "interval": 1,
+                    "start": "2026-10-21",
+                    "time": "09:00",
+                    "weekdays": [],
+                    "monthRepeat": null,
+                    "end": { "type": "never" }
+                }
+            }),
+        )
+        .expect("set_task_repeat");
+
+        let response = ipc
+            .call(
+                "set_task_completed",
+                serde_json::json!({ "id": "t1", "completed": true }),
+            )
+            .expect("set_task_completed");
+        let task: Task = response.deserialize().expect("deserialize task");
+
+        // The completed occurrence moved on to the next day.
+        assert!(!task.completed);
+        assert_eq!(task.next_occurrence.as_deref(), Some("2026-10-22"));
+        assert_eq!(task.occurrence_index, 1);
     }
 }

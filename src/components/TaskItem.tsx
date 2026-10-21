@@ -4,12 +4,15 @@ import RepeatModal from "./RepeatModal";
 
 type TaskItemProps = {
   task: Task;
+  /** Current time — decides whether the task counts as overdue. */
+  now: Date;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onSetDueDate: (id: string, dueDate: string | null) => void;
   onSetDueTime: (id: string, dueTime: string | null) => void;
   onSetDescription: (id: string, description: string) => void;
   onSetRepeat: (id: string, repeat: Repeat | null) => void;
+  onSetCompleted: (id: string, completed: boolean) => void;
 };
 
 const TRASH_ICON =
@@ -22,6 +25,9 @@ const CALENDAR_ICON =
 
 const REPEAT_ICON =
   "M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99";
+
+/** Time of day a task counts as due at when it has no time of its own. */
+const DEFAULT_DUE_TIME = "09:00";
 
 /** Format YYYY-MM-DD as e.g. "Oct 24, 2026" (parsed as a local date, not UTC). */
 function formatDueDate(dueDate: string): string {
@@ -43,35 +49,52 @@ function formatDueTime(dueTime: string): string {
 }
 
 /** Today as YYYY-MM-DD in local time (string-comparable with stored due dates). */
-function todayString(): string {
-  const now = new Date();
+function todayString(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 /** Current time as HH:MM in local time (string-comparable with stored due times). */
-function nowTimeString(): string {
-  const now = new Date();
+function nowTimeString(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
 /**
- * Overdue (negative/red) when the date is before today; for a date equal to
- * today, overdue once the due time has passed (or not yet, if no time set).
+ * The date and time the task is currently due.
+ *
+ * A repeating task is due at its active occurrence, a one-off task at its due
+ * date. `null` when the task has no schedule at all.
  */
-function isOverdue(task: Task): boolean {
-  if (!task.dueDate) return false;
-  const today = todayString();
-  if (task.dueDate !== today) return task.dueDate < today;
-  return task.dueTime !== null && task.dueTime < nowTimeString();
+function dueInfo(task: Task): { date: string; time: string | null } | null {
+  if (task.repeat) {
+    const date = task.nextOccurrence ?? task.dueDate;
+    if (!date) return null;
+    return { date, time: task.repeat.time ?? task.dueTime };
+  }
+  if (!task.dueDate) return null;
+  return { date: task.dueDate, time: task.dueTime };
+}
+
+/**
+ * Overdue (negative/red) when the date is before today; for a date equal to
+ * today, overdue once the due time has passed. Tasks without a time of their
+ * own count as due at 09:00 — the same moment the reminder fires.
+ */
+function isOverdue(task: Task, now: Date): boolean {
+  const due = dueInfo(task);
+  if (!due) return false;
+  const today = todayString(now);
+  if (due.date !== today) return due.date < today;
+  return (due.time ?? DEFAULT_DUE_TIME) < nowTimeString(now);
 }
 
 /** Combined label like "Oct 24, 2026 · 5:30 PM". */
 function dueLabel(task: Task): string {
-  if (!task.dueDate) return "";
-  const date = formatDueDate(task.dueDate);
-  return task.dueTime ? `${date} · ${formatDueTime(task.dueTime)}` : date;
+  const due = dueInfo(task);
+  if (!due) return "";
+  const date = formatDueDate(due.date);
+  return due.time ? `${date} · ${formatDueTime(due.time)}` : date;
 }
 
 /** Long weekday name for 0 = Sunday … 6 = Saturday (Jan 2, 2000 was a Sunday). */
@@ -121,12 +144,14 @@ function repeatSummary(repeat: Repeat): string {
 
 export default function TaskItem({
   task,
+  now,
   onRename,
   onDelete,
   onSetDueDate,
   onSetDueTime,
   onSetDescription,
   onSetRepeat,
+  onSetCompleted,
 }: TaskItemProps) {
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState("");
@@ -153,6 +178,43 @@ export default function TaskItem({
   return (
     <div className="rounded-md hover:bg-gray-100 dark:hover:bg-gray-800">
       <div className="flex items-center gap-3 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => onSetCompleted(task.id, !task.completed)}
+          onDoubleClick={(e) => e.stopPropagation()}
+          aria-label={
+            task.completed
+              ? `Mark ${task.title} as not done`
+              : `Mark ${task.title} as done`
+          }
+          title={task.completed ? "Mark as not done" : "Mark as done"}
+          className="shrink-0"
+        >
+          {task.completed ? (
+            <svg viewBox="0 0 24 24" className="size-4 text-blue-600 dark:text-blue-400">
+              <circle cx="12" cy="12" r="9" fill="currentColor" />
+              <path
+                d="M8.25 12.5l2.5 2.5 5-5.5"
+                fill="none"
+                stroke="white"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          ) : (
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              className="size-4 text-gray-300 hover:text-blue-500 dark:text-gray-600 dark:hover:text-blue-400"
+            >
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+          )}
+        </button>
+
         {editing ? (
           <input
             autoFocus
@@ -183,11 +245,19 @@ export default function TaskItem({
               <path strokeLinecap="round" strokeLinejoin="round" d={CHEVRON_ICON} />
             </svg>
             <span className="min-w-0 flex-1">
-              <span className="block truncate">{task.title}</span>
-              {task.dueDate && (
+              <span
+                className={`block truncate ${
+                  task.completed
+                    ? "text-gray-400 line-through dark:text-gray-500"
+                    : ""
+                }`}
+              >
+                {task.title}
+              </span>
+              {dueInfo(task) && (
                 <span
                   className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                    isOverdue(task)
+                    isOverdue(task, now)
                       ? "bg-red-50 text-red-600 dark:bg-red-950/50 dark:text-red-400"
                       : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"
                   }`}
@@ -227,65 +297,69 @@ export default function TaskItem({
         }`}
       >
         <div className="overflow-hidden">
-          <div className="flex items-center gap-2 px-3 pb-2 pl-9">
-            {picking ? (
-              <input
-                type="date"
-                autoFocus
-                value={task.dueDate ?? ""}
-                onChange={(e) => {
-                  onSetDueDate(task.id, e.currentTarget.value || null);
-                  setPicking(false);
-                }}
-                onBlur={() => setPicking(false)}
-                className="rounded-md border border-blue-400 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:bg-gray-900 dark:text-gray-100"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setPicking(true)}
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
-                  !task.dueDate
-                    ? "border-gray-300 text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                    : isOverdue(task)
-                      ? "border-red-200 bg-red-50 text-red-600 dark:border-red-900 dark:bg-red-950/50 dark:text-red-400"
-                      : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/50 dark:text-blue-300"
-                }`}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                  className="size-3.5"
+          {/* A repeating task is scheduled by its rule — the rule editor owns
+              the date and time, so the one-off controls stay out of the way. */}
+          {!task.repeat && (
+            <div className="flex items-center gap-2 px-3 pb-2 pl-9">
+              {picking ? (
+                <input
+                  type="date"
+                  autoFocus
+                  value={task.dueDate ?? ""}
+                  onChange={(e) => {
+                    onSetDueDate(task.id, e.currentTarget.value || null);
+                    setPicking(false);
+                  }}
+                  onBlur={() => setPicking(false)}
+                  className="rounded-md border border-blue-400 bg-white px-2 py-1 text-xs text-gray-900 outline-none dark:bg-gray-900 dark:text-gray-100"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPicking(true)}
+                  className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+                    !task.dueDate
+                      ? "border-gray-300 text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                      : isOverdue(task, now)
+                        ? "border-red-200 bg-red-50 text-red-600 dark:border-red-900 dark:bg-red-950/50 dark:text-red-400"
+                        : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/50 dark:text-blue-300"
+                  }`}
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d={CALENDAR_ICON} />
-                </svg>
-                {task.dueDate ? dueLabel(task) : "Set due date"}
-              </button>
-            )}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-3.5"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d={CALENDAR_ICON} />
+                  </svg>
+                  {task.dueDate ? dueLabel(task) : "Set due date"}
+                </button>
+              )}
 
-            {task.dueDate && (
-              <input
-                type="time"
-                value={task.dueTime ?? ""}
-                onChange={(e) => onSetDueTime(task.id, e.currentTarget.value || null)}
-                aria-label="Due time"
-                className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-              />
-            )}
+              {task.dueDate && (
+                <input
+                  type="time"
+                  value={task.dueTime ?? ""}
+                  onChange={(e) => onSetDueTime(task.id, e.currentTarget.value || null)}
+                  aria-label="Due time"
+                  className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+                />
+              )}
 
-            {task.dueDate && !picking && (
-              <button
-                type="button"
-                onClick={() => onSetDueDate(task.id, null)}
-                className="text-xs text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
-              >
-                Clear
-              </button>
-            )}
-          </div>
+              {task.dueDate && !picking && (
+                <button
+                  type="button"
+                  onClick={() => onSetDueDate(task.id, null)}
+                  className="text-xs text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="px-3 pb-2 pl-9">
             <textarea
@@ -317,7 +391,18 @@ export default function TaskItem({
               >
                 <path strokeLinecap="round" strokeLinejoin="round" d={REPEAT_ICON} />
               </svg>
-              {task.repeat ? repeatSummary(task.repeat) : "Repeat"}
+              {task.repeat ? (
+                <span className="flex flex-col items-start">
+                  <span>{repeatSummary(task.repeat)}</span>
+                  {task.nextOccurrence && (
+                    <span className="text-[11px] opacity-70">
+                      Next: {formatDueDate(task.nextOccurrence)}
+                    </span>
+                  )}
+                </span>
+              ) : (
+                "Repeat"
+              )}
             </button>
           </div>
         </div>
@@ -326,7 +411,7 @@ export default function TaskItem({
       {showRepeatModal && (
         <RepeatModal
           repeat={task.repeat}
-          defaultStart={task.dueDate ?? todayString()}
+          defaultStart={task.dueDate ?? todayString(now)}
           defaultTime={task.dueTime}
           onSave={(repeat) => onSetRepeat(task.id, repeat)}
           onClose={() => setShowRepeatModal(false)}
