@@ -86,6 +86,13 @@ function weekLabel(week: 1 | 2 | 3 | 4 | "last"): string {
   return week === "last" ? "last" : ["first", "second", "third", "fourth"][week - 1];
 }
 
+/** "Sunday", "Sunday and Monday", "Sunday, Monday and Friday". */
+function joinWeekdays(days: number[]): string {
+  const names = days.map(weekdayName);
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 /** Short human summary, e.g. "Every 2 weeks on Sunday · until Oct 24, 2026". */
 function repeatSummary(repeat: Repeat): string {
   const base =
@@ -93,8 +100,8 @@ function repeatSummary(repeat: Repeat): string {
       ? `Every ${repeat.unit}`
       : `Every ${repeat.interval} ${repeat.unit}s`;
   let summary = base;
-  if (repeat.unit === "week" && repeat.weekday !== null) {
-    summary += ` on ${weekdayName(repeat.weekday)}`;
+  if (repeat.unit === "week" && repeat.weekdays.length > 0) {
+    summary += ` on ${joinWeekdays(repeat.weekdays)}`;
   }
   if (repeat.unit === "month" && repeat.monthRepeat) {
     const m = repeat.monthRepeat;

@@ -20,10 +20,10 @@ export type Repeat = {
   /** Time of day for occurrences as HH:MM (24h), or null for no time. */
   time: string | null;
   /**
-   * Weekday to recur on for weekly rules (0 = Sunday … 6 = Saturday);
-   * null means "same weekday as start". Ignored for non-weekly units.
+   * Weekdays to recur on for weekly rules (0 = Sunday … 6 = Saturday).
+   * Empty means "same weekday as start". Ignored for non-weekly units.
    */
-  weekday: number | null;
+  weekdays: number[];
   /** Day/anchor within the month; only for monthly rules. Null = start date's day. */
   monthRepeat: MonthRepeat | null;
   end: RepeatEnd;

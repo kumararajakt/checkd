@@ -51,7 +51,7 @@ export default function RepeatModal({
   const [interval, setInterval] = useState(String(repeat?.interval ?? 1));
   const [start, setStart] = useState(repeat?.start ?? defaultStart);
   const [time, setTime] = useState(repeat?.time ?? defaultTime ?? "");
-  const [weekday, setWeekday] = useState<number | null>(repeat?.weekday ?? null);
+  const [weekdays, setWeekdays] = useState<number[]>(repeat?.weekdays ?? []);
 
   const initialMonth = repeat?.monthRepeat ?? null;
   const initialDay =
@@ -97,8 +97,9 @@ export default function RepeatModal({
       interval: n,
       start: start || defaultStart,
       time: time || null,
-      // Only weekly rules care about a weekday; drop it otherwise.
-      weekday: unit === "week" ? weekday : null,
+      // Only weekly rules care about weekdays; drop them otherwise.
+      weekdays:
+        unit === "week" ? [...weekdays].sort((a, b) => a - b) : [],
       monthRepeat:
         unit !== "month"
           ? null
@@ -173,11 +174,13 @@ export default function RepeatModal({
         {unit === "week" && (
           <div className="mt-3">
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs text-gray-500">On</span>
-              {weekday !== null && (
+              <span className="text-xs text-gray-500">
+                On {weekdays.length > 1 ? "(multiple days)" : ""}
+              </span>
+              {weekdays.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setWeekday(null)}
+                  onClick={() => setWeekdays([])}
                   className="text-xs text-gray-400 hover:text-gray-700"
                 >
                   Use start date’s day
@@ -185,22 +188,31 @@ export default function RepeatModal({
               )}
             </div>
             <div className="grid grid-cols-7 gap-1">
-              {WEEKDAYS.map((label, day) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setWeekday((prev) => (prev === day ? null : day))}
-                  title={label}
-                  aria-pressed={weekday === day}
-                  className={`rounded-md py-1 text-xs font-medium ${
-                    weekday === day
-                      ? "bg-blue-600 text-white"
-                      : "border border-gray-300 text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+              {WEEKDAYS.map((label, day) => {
+                const active = weekdays.includes(day);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() =>
+                      setWeekdays((prev) =>
+                        prev.includes(day)
+                          ? prev.filter((d) => d !== day)
+                          : [...prev, day],
+                      )
+                    }
+                    title={label}
+                    aria-pressed={active}
+                    className={`rounded-md py-1 text-xs font-medium ${
+                      active
+                        ? "bg-blue-600 text-white"
+                        : "border border-gray-300 text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -285,23 +297,25 @@ export default function RepeatModal({
           <span>{plural(unit, Math.max(1, Math.floor(Number(interval)) || 1))}</span>
         </div>
 
+        <div className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+          <span>At</span>
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.currentTarget.value)}
+            aria-label="Repeat time"
+            className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-400"
+          />
+        </div>
+
         <label className="mt-3 flex items-center justify-between gap-2 text-sm text-gray-700">
           Starts
-          <span className="flex items-center gap-2">
-            <input
-              type="date"
-              value={start}
-              onChange={(e) => setStart(e.currentTarget.value)}
-              className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-400"
-            />
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.currentTarget.value)}
-              aria-label="Repeat time"
-              className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-400"
-            />
-          </span>
+          <input
+            type="date"
+            value={start}
+            onChange={(e) => setStart(e.currentTarget.value)}
+            className="rounded-md border border-gray-300 px-2 py-1 text-sm outline-none focus:border-blue-400"
+          />
         </label>
 
         <fieldset className="mt-4">
