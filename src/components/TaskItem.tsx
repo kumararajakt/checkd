@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent } from "react";
 import type { Repeat, Task } from "../types";
 import RepeatModal from "./RepeatModal";
+import TimeModal from "./TimeModal";
 
 type TaskItemProps = {
   task: Task;
@@ -25,6 +26,9 @@ const CALENDAR_ICON =
 
 const REPEAT_ICON =
   "M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99";
+
+const CLOCK_ICON =
+  "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z";
 
 /** Time of day a task counts as due at when it has no time of its own. */
 const DEFAULT_DUE_TIME = "09:00";
@@ -158,6 +162,7 @@ export default function TaskItem({
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const [showRepeatModal, setShowRepeatModal] = useState(false);
+  const [showTimeModal, setShowTimeModal] = useState(false);
 
   function startEdit() {
     setEditDraft(task.title);
@@ -340,13 +345,25 @@ export default function TaskItem({
               )}
 
               {task.dueDate && (
-                <input
-                  type="time"
-                  value={task.dueTime ?? ""}
-                  onChange={(e) => onSetDueTime(task.id, e.currentTarget.value || null)}
+                <button
+                  type="button"
+                  onClick={() => setShowTimeModal(true)}
                   aria-label="Due time"
-                  className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-                />
+                  title="Set due time"
+                  className="flex items-center gap-1.5 rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-white dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    strokeWidth={1.5}
+                    stroke="currentColor"
+                    className="size-3.5"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d={CLOCK_ICON} />
+                  </svg>
+                  {task.dueTime ? formatDueTime(task.dueTime) : "No time"}
+                </button>
               )}
 
               {task.dueDate && !picking && (
@@ -415,6 +432,14 @@ export default function TaskItem({
           defaultTime={task.dueTime}
           onSave={(repeat) => onSetRepeat(task.id, repeat)}
           onClose={() => setShowRepeatModal(false)}
+        />
+      )}
+
+      {showTimeModal && (
+        <TimeModal
+          time={task.dueTime}
+          onSave={(time) => onSetDueTime(task.id, time)}
+          onClose={() => setShowTimeModal(false)}
         />
       )}
     </div>

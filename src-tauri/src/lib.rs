@@ -351,6 +351,45 @@ mod ipc_tests {
         assert!(data.lists.is_empty());
     }
 
+    /// The time modal writes the picked time together with the date the task
+    /// already had — the date must survive the write.
+    #[test]
+    fn setting_the_time_keeps_the_due_date() {
+        let ipc = Ipc::new("time-modal");
+
+        ipc.call(
+            "create_list",
+            serde_json::json!({ "id": "l1", "name": "Home", "color": "#3b82f6" }),
+        )
+        .expect("create_list");
+
+        ipc.call(
+            "create_task",
+            serde_json::json!({ "id": "t1", "listId": "l1", "title": "Call mum" }),
+        )
+        .expect("create_task");
+
+        ipc.call(
+            "set_task_due",
+            serde_json::json!({ "id": "t1", "dueDate": "2026-10-21", "dueTime": null }),
+        )
+        .expect("set_task_due");
+
+        // The modal sends the picked time along with the date it already had.
+        ipc.call(
+            "set_task_due",
+            serde_json::json!({ "id": "t1", "dueDate": "2026-10-21", "dueTime": "17:45" }),
+        )
+        .expect("set_task_due");
+
+        let response = ipc.call("load_data", serde_json::json!({})).expect("load_data");
+        let data: AppData = response.deserialize().expect("deserialize app data");
+        let task = &data.lists[0].tasks[0];
+
+        assert_eq!(task.due_date.as_deref(), Some("2026-10-21"));
+        assert_eq!(task.due_time.as_deref(), Some("17:45"));
+    }
+
     /// Completing a repeating task through the IPC advances the series.
     #[test]
     fn completing_a_repeating_task_through_ipc_advances_it() {

@@ -12,7 +12,7 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 ## Layout
 
 - `src/` — React frontend; entrypoint `src/main.tsx`. Styles in `src/index.css` (`@import "tailwindcss"`).
-- `src/components/` — `Sidebar`, `NavItem` (one list row), `TaskList`, `TaskItem` (one task row), `ColorModal`, `RepeatModal`, `SettingsDialog`.
+- `src/components/` — `Sidebar`, `NavItem` (one list row), `TaskList`, `TaskItem` (one task row), `ColorModal`, `RepeatModal`, `TimeModal`, `SettingsDialog`.
 - `src/types.ts` — shared data model (`List`, `Task`, `Repeat`, `MonthRepeat`, `AppData`).
 - `src/db.ts` — typed wrappers around the SQLite commands (`db.load()`, `db.createList()`, …).
 - `src/settings.ts` — app settings (theme, close-to-tray), persisted in `localStorage` under `checkd.settings`.
