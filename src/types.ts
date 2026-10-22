@@ -60,3 +60,33 @@ export type List = {
 export type AppData = {
   lists: List[];
 };
+
+/** The state of the Google Calendar sync. */
+export type SyncStatus = {
+  /** The OAuth client is stored — the user can connect. */
+  configured: boolean;
+  /** A Google account is connected. */
+  connected: boolean;
+  /** The connected account. */
+  account: string | null;
+  /** Local changes that are waiting to be pushed. */
+  pending: number;
+  /** When the last sync ran (unix milliseconds). */
+  lastSyncAt: number | null;
+  /** The message of the last failed sync. */
+  lastError: string | null;
+};
+
+/**
+ * The OAuth client the app found in the environment — the secret itself never
+ * leaves the environment, only a hint that shows it is there.
+ */
+export type CredentialsStatus = {
+  configured: boolean;
+  clientId: string | null;
+  secretHint: string | null;
+  /** Where the client came from — an environment variable or a `.env` file. */
+  source: string | null;
+  /** The file the app reads when the environment says nothing. */
+  envFile: string | null;
+};

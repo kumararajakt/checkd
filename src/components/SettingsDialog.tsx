@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { db } from "../db";
 import type { Settings, Theme } from "../settings";
+import type { CredentialsStatus, SyncStatus } from "../types";
 
 type SettingsDialogProps = {
   settings: Settings;
@@ -26,6 +28,183 @@ const THEMES: { value: Theme; label: string; icon: string }[] = [
     icon: "M21.752 15.002A9.72 9.72 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z",
   },
 ];
+
+/** The message of a failed call. */
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** When the last sync ran, in words. */
+function sinceLabel(at: number | null): string {
+  if (!at) return "never";
+  const minutes = Math.round((Date.now() - at) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(at).toLocaleDateString();
+}
+
+/**
+ * The Google Calendar section.
+ *
+ * checkd does not ship an OAuth client of its own — the app reads the user's
+ * own Desktop OAuth client from the environment
+ * (`CHECKD_GOOGLE_CLIENT_ID` / `CHECKD_GOOGLE_CLIENT_SECRET`, or a `.env`
+ * file). Nothing here talks to Google until the user connects an account.
+ */
+function GoogleSyncSection() {
+  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [credentials, setCredentials] = useState<CredentialsStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    (async () => {
+      try {
+        const [current, stored] = await Promise.all([
+          db.googleStatus(),
+          db.googleCredentialsStatus(),
+        ]);
+        if (!alive) return;
+        setStatus(current);
+        setCredentials(stored);
+      } catch (e) {
+        if (alive) setError(messageOf(e));
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function run(action: () => Promise<SyncStatus>) {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await action());
+    } catch (e) {
+      setError(messageOf(e));
+      // The status may have moved on (a failed sync writes the reason down).
+      try {
+        setStatus(await db.googleStatus());
+      } catch {
+        // Nothing more we can do here.
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const configured = credentials?.configured ?? false;
+  const connected = status?.connected ?? false;
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+        Google Calendar
+      </h3>
+
+      <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+        Sync your lists to Google Calendar. checkd keeps working offline — Google
+        is only a mirror.
+      </p>
+
+      <div className="flex flex-col gap-2">
+        <p className="text-xs text-gray-600 dark:text-gray-300">
+          {configured ? (
+            <>
+              Client <span className="font-mono">{credentials?.clientId}</span>{" "}
+              from {credentials?.source}
+              {credentials?.secretHint && (
+                <span className="text-gray-400 dark:text-gray-500">
+                  {" "}
+                  (secret {credentials.secretHint})
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              No Google client found — set{" "}
+              <span className="font-mono">CHECKD_GOOGLE_CLIENT_ID</span> and{" "}
+              <span className="font-mono">CHECKD_GOOGLE_CLIENT_SECRET</span> in
+              the environment
+              {credentials?.envFile && (
+                <>
+                  {" "}
+                  (or in the file{" "}
+                  <span className="font-mono">{credentials.envFile}</span>)
+                </>
+              )}{" "}
+              and start checkd again.
+            </>
+          )}
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {connected ? (
+            <>
+              {/* The push/pull engine lands with P2 — then this button
+                  becomes "Sync now" and actually syncs. */}
+              <button
+                type="button"
+                onClick={() => run(db.googleSyncNow)}
+                disabled={busy}
+                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {busy ? "Working…" : "Test connection"}
+              </button>
+              <button
+                type="button"
+                onClick={() => run(db.googleSignOut)}
+                disabled={busy}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                Disconnect
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => run(db.googleSignIn)}
+              disabled={busy || !configured}
+              title={
+                configured
+                  ? undefined
+                  : "checkd needs a Google OAuth client — see the note above."
+              }
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy ? "Waiting for Google…" : "Connect"}
+            </button>
+          )}
+        </div>
+
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          {connected ? (
+            <>
+              Connected as {status?.account ?? "your Google account"} ·{" "}
+              {status?.pending ?? 0} change
+              {(status?.pending ?? 0) === 1 ? "" : "s"} waiting · last checked{" "}
+              {sinceLabel(status?.lastSyncAt ?? null)}
+            </>
+          ) : configured ? (
+            "Connect to give checkd access to your calendars."
+          ) : (
+            "Until then checkd stays a local-only app."
+          )}
+        </p>
+
+        {error && (
+          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export default function SettingsDialog({
   settings,
@@ -63,7 +242,7 @@ export default function SettingsDialog({
       role="presentation"
     >
       <div
-        className="w-96 rounded-xl bg-white p-4 shadow-xl dark:bg-gray-900"
+        className="max-h-[90vh] w-96 overflow-y-auto rounded-xl bg-white p-4 shadow-xl dark:bg-gray-900"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Settings"
@@ -163,6 +342,8 @@ export default function SettingsDialog({
               )}
             </div>
           </section>
+
+          <GoogleSyncSection />
         </div>
 
         <div className="mt-5 flex justify-end">

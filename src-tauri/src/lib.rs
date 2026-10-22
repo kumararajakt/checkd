@@ -9,9 +9,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, State, WindowEvent};
+use tauri::{AppHandle, Manager, State, WindowEvent};
 
 use crate::db::{AppData, Db, Repeat, Task};
+use crate::sync::{CredentialsStatus, SyncManager, SyncStatus};
 
 const APP_ICON: tauri::image::Image<'static> = tauri::include_image!("icons/32x32.png");
 
@@ -104,6 +105,48 @@ fn delete_task(db: State<'_, Db>, id: String) -> Result<(), String> {
     db.delete_task(&id)
 }
 
+/// The state of the Google sync — the settings dialog reads this.
+#[tauri::command]
+fn google_status(sync: State<'_, SyncManager>, db: State<'_, Db>) -> SyncStatus {
+    sync.status(&db)
+}
+
+/// The OAuth client the app found in the environment — the secret itself is
+/// never sent back.
+#[tauri::command]
+fn google_credentials_status(sync: State<'_, SyncManager>) -> Result<CredentialsStatus, String> {
+    sync.credentials_status()
+}
+
+/// Runs the consent flow: the browser opens on Google's screen and the
+/// answer comes back to a loopback listener.
+#[tauri::command]
+async fn google_sign_in<R: tauri::Runtime>(
+    app: AppHandle<R>,
+    sync: State<'_, SyncManager>,
+    db: State<'_, Db>,
+) -> Result<SyncStatus, String> {
+    sync.sign_in(app, &db).await
+}
+
+/// Gives the access back to Google and forgets the tokens.
+#[tauri::command]
+async fn google_sign_out(
+    sync: State<'_, SyncManager>,
+    db: State<'_, Db>,
+) -> Result<SyncStatus, String> {
+    sync.sign_out(&db).await
+}
+
+/// Talks to Google now.
+#[tauri::command]
+async fn google_sync_now(
+    sync: State<'_, SyncManager>,
+    db: State<'_, Db>,
+) -> Result<SyncStatus, String> {
+    sync.sync_now(&db).await
+}
+
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
@@ -115,11 +158,12 @@ fn show_main_window(app: &tauri::AppHandle) {
 ///
 /// `db` is managed up-front; pass `None` to open the real database in
 /// `setup` (it needs the app handle to resolve the app-data dir).
-fn builder<R: tauri::Runtime>(db: Option<Db>) -> tauri::Builder<R> {
+fn builder<R: tauri::Runtime>(db: Option<Db>, sync: SyncManager) -> tauri::Builder<R> {
     let builder = tauri::Builder::<R>::new()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .manage(sync)
         .invoke_handler(tauri::generate_handler![
             set_close_to_tray,
             export_data,
@@ -135,6 +179,11 @@ fn builder<R: tauri::Runtime>(db: Option<Db>) -> tauri::Builder<R> {
             set_task_repeat,
             set_task_completed,
             delete_task,
+            google_status,
+            google_credentials_status,
+            google_sign_in,
+            google_sign_out,
+            google_sync_now,
         ]);
 
     match db {
@@ -145,9 +194,32 @@ fn builder<R: tauri::Runtime>(db: Option<Db>) -> tauri::Builder<R> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    builder::<tauri::Wry>(None)
+    builder::<tauri::Wry>(None, SyncManager::new())
         .setup(|app| {
             app.manage(Db::open(app.handle())?);
+
+            let data_dir = app.path().app_data_dir().ok();
+
+            // Systems without a keyring keep the secrets in the app-data
+            // directory instead.
+            if let Some(dir) = data_dir.clone() {
+                app.state::<SyncManager>().set_fallback_dir(dir);
+            }
+
+            // The OAuth client comes from the environment — the app asks for
+            // no credentials.
+            match app.state::<SyncManager>().load_client(data_dir) {
+                Ok(()) => {
+                    if let Some(resolved) = app.state::<SyncManager>().resolved_client() {
+                        eprintln!(
+                            "Google OAuth client: {} (from {})",
+                            resolved.client.client_id,
+                            resolved.source.describe()
+                        );
+                    }
+                }
+                Err(err) => eprintln!("could not read the Google OAuth client: {err}"),
+            }
 
             // Reminders keep firing while the window is hidden in the tray.
             notify::spawn(app.handle().clone());
@@ -205,9 +277,40 @@ pub fn run() {
 mod ipc_tests {
     use super::*;
     use crate::db::{MonthRepeat, MonthWeek, RepeatEnd, RepeatUnit};
+    use crate::sync::auth::MemoryStore;
+    use crate::sync::google::{BoxFuture, GoogleClient, RemoteCalendar, RemoteEvent};
+    use std::sync::Arc;
     use tauri::ipc::InvokeResponseBody;
     use tauri::test::{get_ipc_response, mock_context, noop_assets, MockRuntime};
     use tauri::webview::InvokeRequest;
+
+    /// A Google client that never talks to the network.
+    #[derive(Debug, Default)]
+    struct FakeGoogle;
+
+    impl GoogleClient for FakeGoogle {
+        fn list_calendars<'a>(
+            &'a self,
+            _access_token: &'a str,
+        ) -> BoxFuture<'a, Result<Vec<RemoteCalendar>, String>> {
+            Box::pin(async {
+                Ok(vec![RemoteCalendar {
+                    id: "cal-1".to_string(),
+                    summary: Some("Groceries".to_string()),
+                    location: Some("checkd".to_string()),
+                    hidden: true,
+                }])
+            })
+        }
+
+        fn list_events<'a>(
+            &'a self,
+            _access_token: &'a str,
+            _calendar_id: &'a str,
+        ) -> BoxFuture<'a, Result<Vec<RemoteEvent>, String>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+    }
 
     /// A mock app + webview that speaks the same IPC protocol as the real one.
     struct Ipc {
@@ -222,9 +325,12 @@ mod ipc_tests {
             let _ = std::fs::remove_file(&path);
             let db = Db::open_path(&path).expect("open temp db");
 
-            let app = builder::<MockRuntime>(Some(db))
-                .build(mock_context(noop_assets()))
-                .expect("build app");
+            let app = builder::<MockRuntime>(
+                Some(db),
+                SyncManager::with_stores(Arc::new(MemoryStore::default()), Arc::new(FakeGoogle)),
+            )
+            .build(mock_context(noop_assets()))
+            .expect("build app");
             let key = app.invoke_key().to_string();
             let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
                 .build()
@@ -438,5 +544,51 @@ mod ipc_tests {
         assert!(!task.completed);
         assert_eq!(task.next_occurrence.as_deref(), Some("2030-01-02"));
         assert_eq!(task.occurrence_index, 1);
+    }
+
+    /// The sync commands answer before a Google account is connected — and
+    /// the credentials never leave the environment.
+    #[test]
+    fn the_sync_commands_start_out_disconnected() {
+        let ipc = Ipc::new("sync");
+
+        let response = ipc.call("google_status", serde_json::json!({})).expect("google_status");
+        let status: SyncStatus = response.deserialize().expect("deserialize status");
+        assert!(!status.configured);
+        assert!(!status.connected);
+        assert_eq!(status.pending, 0);
+
+        let response = ipc
+            .call("google_credentials_status", serde_json::json!({}))
+            .expect("google_credentials_status");
+        let credentials: CredentialsStatus = response.deserialize().expect("deserialize credentials");
+        assert!(!credentials.configured);
+        assert_eq!(credentials.client_id, None);
+
+        // A sync without a connection fails with a readable message.
+        let error = ipc
+            .call("google_sync_now", serde_json::json!({}))
+            .expect_err("sync without a connection");
+        let message = error.to_string();
+        assert!(
+            message.contains("No Google account is connected"),
+            "unexpected error: {message}"
+        );
+    }
+
+    /// Local changes wait in the outbox until they are pushed.
+    #[test]
+    fn local_changes_show_up_as_pending() {
+        let ipc = Ipc::new("pending");
+
+        ipc.call(
+            "create_list",
+            serde_json::json!({ "id": "l1", "name": "Groceries", "color": "#3b82f6" }),
+        )
+        .expect("create_list");
+
+        let response = ipc.call("google_status", serde_json::json!({})).expect("google_status");
+        let status: SyncStatus = response.deserialize().expect("deserialize status");
+        assert_eq!(status.pending, 1);
     }
 }

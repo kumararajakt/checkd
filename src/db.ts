@@ -6,7 +6,7 @@
  * immediately and `persist` resyncs from the database if a write fails.
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { AppData, Repeat, Task } from "./types";
+import type { AppData, CredentialsStatus, Repeat, SyncStatus, Task } from "./types";
 
 export const db = {
   load: () => invoke<AppData>("load_data"),
@@ -49,4 +49,20 @@ export const db = {
     invoke<Task>("set_task_completed", { id, completed }),
 
   deleteTask: (id: string) => invoke<void>("delete_task", { id }),
+
+  /** The state of the Google Calendar sync. */
+  googleStatus: () => invoke<SyncStatus>("google_status"),
+
+  /** The OAuth client the app found in the environment. */
+  googleCredentialsStatus: () =>
+    invoke<CredentialsStatus>("google_credentials_status"),
+
+  /** Opens the consent screen and connects the account. */
+  googleSignIn: () => invoke<SyncStatus>("google_sign_in"),
+
+  /** Gives the access back to Google and forgets the tokens. */
+  googleSignOut: () => invoke<SyncStatus>("google_sign_out"),
+
+  /** Talks to Google now. */
+  googleSyncNow: () => invoke<SyncStatus>("google_sync_now"),
 };

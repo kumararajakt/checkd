@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# OAuth credentials for the Google sync — never commit them
+.env
+.env.*
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

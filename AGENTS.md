@@ -7,20 +7,23 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 - `bun run tauri dev` — run the full app (starts Vite, then opens the Tauri window).
 - `bun run dev` — frontend only, no desktop window.
 - `bun run tauri build` — release build/bundle (runs `tsc && vite build` first).
-- `tsc` (via `bun run build`) is the **only** typecheck step. There is no linter, formatter, test runner, or CI config — don't hunt for one; add tests only if the task requires it.
+- `cargo test` (in `src-tauri/`) — the Rust unit + IPC tests.
+- `tsc` (via `bun run build`) is the **only** typecheck step. There is no JS linter, formatter or test runner — don't hunt for one; add frontend tests only if the task requires it.
+- CI: `.github/workflows/appimage.yml` (Ubuntu 22.04) typechecks the frontend, runs the Rust tests and builds the AppImage.
 
 ## Layout
 
 - `src/` — React frontend; entrypoint `src/main.tsx`. Styles in `src/index.css` (`@import "tailwindcss"`).
 - `src/components/` — `Sidebar`, `NavItem` (one list row), `TaskList`, `TaskItem` (one task row), `ColorModal`, `RepeatModal`, `TimeModal`, `SettingsDialog`.
-- `src/types.ts` — shared data model (`List`, `Task`, `Repeat`, `MonthRepeat`, `AppData`).
+- `src/types.ts` — shared data model (`List`, `Task`, `Repeat`, `MonthRepeat`, `AppData`, `SyncStatus`, `CredentialsStatus`).
 - `src/db.ts` — typed wrappers around the SQLite commands (`db.load()`, `db.createList()`, …).
 - `src/settings.ts` — app settings (theme, close-to-tray, last opened list), persisted in `localStorage` under `checkd.settings`.
 - `src-tauri/` — Rust crate. Real entrypoint is `src-tauri/src/lib.rs` (`run()`); `main.rs` just calls `checkd_lib::run()`.
 - `src-tauri/src/db.rs` — SQLite layer: schema, models (mirror `src/types.ts`), and all CRUD.
 - `src-tauri/src/repeat.rs` — occurrence generator for repeat rules (pure functions over `chrono` dates).
 - `src-tauri/src/notify.rs` — the reminder scheduler: a background thread that fires desktop notifications.
-- `src-tauri/src/sync.rs` — Google Calendar sync bookkeeping (the outbox model). The sync itself is not implemented yet; the design lives in `docs/google-calendar-sync-design.md`.
+- `src-tauri/src/sync/` — the Google Calendar sync: `mod.rs` (the `SyncManager`: the credentials, the tokens, the status), `auth.rs` (the loopback OAuth flow + the secret stores), `credentials.rs` (where the OAuth client comes from: the env / a `.env` file), `google.rs` (the Calendar REST client behind a `GoogleClient` trait). The push/pull engine is not implemented yet; the design lives in `docs/google-calendar-sync-design.md`.
+- `src-tauri/examples/` — `dump.rs` prints the live database, `keyring.rs` checks whether the OS keyring works.
 - `src-tauri/gen/` — generated Tauri schemas; never hand-edit.
 - `src-tauri/capabilities/default.json` — Tauri v2 permission grants per window.
 - `checkd.svg` (repo root) — the source app icon; `public/checkd.svg` is a copy used as the web favicon — keep both in sync.
@@ -47,6 +50,18 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 - Reminders are **per session**: the scheduler clears `notified_key` when the app starts, so every launch mentions everything that is overdue again — however long ago it was due — and nothing repeats while the app keeps running. Overdue reminders read `Overdue · <list> · <date> · <time>`.
 - Repeat series are *virtual*: one task row plus a pointer (`next_occurrence`, `occurrence_index`). Completing an occurrence advances the pointer; a missed occurrence is dropped once the following one is due, so the series keeps reminding. When the series runs out (`end: after N` or `end: on <date>`) the rule is cleared and the task stays completed.
 - The scheduler emits the `data-changed` event when it moves a series on — the frontend listens and reloads (`src/App.tsx`).
+
+## Google Calendar sync
+
+- The sync is **opt-in**: nothing touches the network until the user connects a Google account in Settings. The design lives in `docs/google-calendar-sync-design.md`.
+- checkd has **no OAuth client of its own** — the user brings their own Desktop OAuth client (id + secret) from the Google Cloud console. It is **read from the environment**, never asked for in the app: `CHECKD_GOOGLE_CLIENT_ID` / `CHECKD_GOOGLE_CLIENT_SECRET` (the short names `CLIENT_ID` / `CLIENT_SECRET` work too). The environment wins over a `.env` file in the app-data dir (`~/.local/share/com.kumar.checkd/.env`), the working directory or its parent (`sync/credentials.rs`). The id is validated (`…apps.googleusercontent.com`).
+- The tokens never leave the OS keyring: the refresh token (`checkd/refresh-token`) and the access token (`checkd/access-token`). The frontend only ever gets the client id, a masked hint (`GOCSPX…ijkl`) and where the client came from. Systems without a keyring fall back to a `0600` file in the app-data dir (`SafeStore` in `sync/auth.rs`).
+- The consent flow is the loopback one: a listener on `127.0.0.1:<port>`, a `state` nonce that is checked, then the code is exchanged for tokens. The access token is refreshed a minute before it expires; a refresh keeps the old refresh token.
+- The scopes are `https://www.googleapis.com/auth/calendar` + `https://www.googleapis.com/auth/userinfo.email` — the email scope is what makes Google hand out the account address (without it `tokeninfo` has no `email` field).
+- The **Calendar API must be enabled** in the Google Cloud project the OAuth client belongs to, otherwise every call answers `403 SERVICE_DISABLED` ("has not been used in project … before or it is disabled"). `sync/google.rs` turns that into one actionable line.
+- Sync commands: `google_status`, `google_credentials_status`, `google_sign_in`, `google_sign_out`, `google_sync_now`. `google_sign_in` is generic over the runtime (`AppHandle<R>`) so the mock runtime can call it.
+- The Google client sits behind the `GoogleClient` trait and the secrets behind the `SecretStore` trait — the IPC tests inject a fake for both and never touch the network or the real keyring.
+- checkd's calendars live in their own namespace (`location: "checkd"`); adventure_list uses `location: "adventure_list"`. The two apps never touch each other's calendars.
 
 ## Tauri 2 gotchas
 

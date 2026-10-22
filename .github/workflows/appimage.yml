@@ -53,8 +53,8 @@ jobs:
       - name: Typecheck and build the frontend
         run: bun run build
 
-      # - name: Run the Rust tests
-        # run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Run the Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
 
   appimage:
     name: AppImage

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::repeat;
-use crate::sync::{self, SyncEntity, SyncLink};
+use crate::sync::{SyncEntity, SyncLink};
 
 /// One task, stored in the `tasks` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -938,6 +938,14 @@ impl Db {
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
+
+    /// Removes a value from the connection-state store.
+    pub fn clear_sync_state(&self, key: &str) -> Result<(), String> {
+        self.conn()
+            .execute("DELETE FROM sync_state WHERE key = ?1", params![key])
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
 }
 
 /// Parses a `HH:MM` time; tasks without one are due at 09:00.
@@ -1098,6 +1106,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sync;
 
     fn temp_db(name: &str) -> Db {
         let path = std::env::temp_dir().join(format!("checkd-test-{name}.db"));
