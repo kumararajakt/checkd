@@ -1,0 +1,141 @@
+name: CI / AppImage
+
+# Pull requests only run the checks. Pushing to master builds an AppImage
+# artifact, and pushing a v* tag publishes it as a GitHub release.
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Tauri v2 needs webkit2gtk 4.1: on jammy that comes from jammy-updates
+      # (2.50.4), the base release only ships 4.0.
+      - name: Install the Linux dependencies Tauri needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config \
+            wget
+
+      - run: bun install --frozen-lockfile
+
+      - name: Typecheck and build the frontend
+        run: bun run build
+
+      - name: Run the Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  appimage:
+    name: AppImage
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      # Tauri v2 needs webkit2gtk 4.1: on jammy that comes from jammy-updates
+      # (2.50.4), the base release only ships 4.0.
+      - name: Install the Linux dependencies Tauri needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            patchelf \
+            pkg-config \
+            wget
+
+      # The bundler downloads linuxdeploy & co. into ~/.cache/tauri — caching
+      # them keeps the build off the network (and off the flaky GitHub CDN).
+      - name: Cache the AppImage bundling tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/tauri
+          key: tauri-bundle-tools-${{ runner.os }}-${{ hashFiles('bun.lock', 'src-tauri/Cargo.lock') }}
+          restore-keys: |
+            tauri-bundle-tools-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+
+      - name: Build the AppImage
+        env:
+          TAG: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+        run: |
+          if [ -n "$TAG" ]; then
+            # A tagged build takes its version from the tag (v1.2.3 -> 1.2.3).
+            bun run tauri build --bundles appimage \
+              --config "{\"version\":\"${TAG#v}\"}"
+          else
+            bun run tauri build --bundles appimage
+          fi
+
+      - name: Upload the AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkd-appimage
+          path: src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          APPIMAGE=$(ls src-tauri/target/release/bundle/appimage/*.AppImage)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APPIMAGE" --clobber
+          else
+            gh release create "$TAG" "$APPIMAGE" \
+              --title "checkd $TAG" \
+              --generate-notes
+          fi
