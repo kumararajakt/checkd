@@ -3,6 +3,7 @@
 pub mod db;
 pub mod notify;
 pub mod repeat;
+pub mod sync;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -414,7 +415,7 @@ mod ipc_tests {
                 "repeat": {
                     "unit": "day",
                     "interval": 1,
-                    "start": "2026-10-21",
+                    "start": "2030-01-01",
                     "time": "09:00",
                     "weekdays": [],
                     "monthRepeat": null,
@@ -432,9 +433,10 @@ mod ipc_tests {
             .expect("set_task_completed");
         let task: Task = response.deserialize().expect("deserialize task");
 
-        // The completed occurrence moved on to the next day.
+        // The completed occurrence moved on to the next day. The rule starts
+        // in the future, so the test does not depend on today's date.
         assert!(!task.completed);
-        assert_eq!(task.next_occurrence.as_deref(), Some("2026-10-22"));
+        assert_eq!(task.next_occurrence.as_deref(), Some("2030-01-02"));
         assert_eq!(task.occurrence_index, 1);
     }
 }

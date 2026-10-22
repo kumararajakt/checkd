@@ -20,6 +20,7 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 - `src-tauri/src/db.rs` — SQLite layer: schema, models (mirror `src/types.ts`), and all CRUD.
 - `src-tauri/src/repeat.rs` — occurrence generator for repeat rules (pure functions over `chrono` dates).
 - `src-tauri/src/notify.rs` — the reminder scheduler: a background thread that fires desktop notifications.
+- `src-tauri/src/sync.rs` — Google Calendar sync bookkeeping (the outbox model). The sync itself is not implemented yet; the design lives in `docs/google-calendar-sync-design.md`.
 - `src-tauri/gen/` — generated Tauri schemas; never hand-edit.
 - `src-tauri/capabilities/default.json` — Tauri v2 permission grants per window.
 - `checkd.svg` (repo root) — the source app icon; `public/checkd.svg` is a copy used as the web favicon — keep both in sync.
@@ -27,7 +28,8 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 ## Data & persistence
 
 - Lists and tasks live in SQLite (`rusqlite` with the `bundled` feature — no system SQLite needed). The DB file is `checkd.db` in the platform app-data dir (`~/.local/share/com.kumar.checkd/` on Linux).
-- Schema (see `src-tauri/src/db.rs`): `lists(id, name, color, position)` and `tasks(id, list_id → lists ON DELETE CASCADE, title, description, due_date, due_time, repeat_json, position, completed, next_occurrence, occurrence_index, notified_key)`. `position` keeps the display order; the repeat rule is stored as JSON text.
+- Schema (see `src-tauri/src/db.rs`): `lists(id, name, color, position, updated_at)` and `tasks(id, list_id → lists ON DELETE CASCADE, title, description, due_date, due_time, repeat_json, position, completed, next_occurrence, occurrence_index, notified_key, updated_at)`. `position` keeps the display order; the repeat rule is stored as JSON text.
+- Sync bookkeeping: `sync_links(entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at)` and `sync_state(key, value)`. `sync_links` is the outbox for the Google sync — every local write marks its row `dirty`, a deleted entity keeps a tombstone row (`deleted = 1`), and `remote_id` is the Google calendar/event id it maps to. `notified_key` is local only and must never be synced.
 - New columns are added by `ALTER TABLE` in `init_schema()` — old database files migrate in place when they are opened.
 - The `Repeat` / `MonthRepeat` / `RepeatEnd` Rust types use `serde` tags that mirror the TS union shapes exactly (`{"type":"last-day"}`, `{"type":"weekday","weekday":1,"week":2|"last"}`). **Changing one side means changing the other.**
 - The UI is optimistic: `App.tsx` updates React state first, then calls `src/db.ts`. If a write fails, `persist()` shows an error banner and reloads from the DB so the UI never drifts from disk.

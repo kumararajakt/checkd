@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::repeat;
+use crate::sync::{self, SyncEntity, SyncLink};
 
 /// One task, stored in the `tasks` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -333,6 +334,7 @@ impl Db {
                         params![task.id, index],
                     )
                     .map_err(|e| e.to_string())?;
+                self.touch(SyncEntity::Task, &task.id)?;
             } else {
                 self.conn()
                     .execute(
@@ -343,6 +345,7 @@ impl Db {
                         params![task.id, repeat::format_date(occurrence), index],
                     )
                     .map_err(|e| e.to_string())?;
+                self.touch(SyncEntity::Task, &task.id)?;
             }
         }
 
@@ -408,14 +411,17 @@ impl Db {
     }
 
     pub fn create_list(&self, id: &str, name: &str, color: &str) -> Result<(), String> {
+        let now = now_ms();
         self.conn()
             .execute(
-                "INSERT INTO lists (id, name, color, position)
-                 VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(position), 0) + 1 FROM lists))",
-                params![id, name, color],
+                "INSERT INTO lists (id, name, color, position, updated_at)
+                 VALUES (?1, ?2, ?3, (SELECT COALESCE(MAX(position), 0) + 1 FROM lists), ?4)",
+                params![id, name, color, now],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.mark_dirty(SyncEntity::List, id)
     }
 
     pub fn rename_list(&self, id: &str, name: &str) -> Result<(), String> {
@@ -425,14 +431,27 @@ impl Db {
                 params![id, name],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.touch(SyncEntity::List, id)
     }
 
     pub fn delete_list(&self, id: &str) -> Result<(), String> {
+        // The tasks go with the list (ON DELETE CASCADE), so they need a
+        // tombstone of their own — a pull must not bring them back.
+        let task_ids = self.task_ids_of(id)?;
+
         self.conn()
             .execute("DELETE FROM lists WHERE id = ?1", params![id])
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.mark_deleted(SyncEntity::List, id)?;
+        for task_id in task_ids {
+            self.mark_deleted(SyncEntity::Task, &task_id)?;
+        }
+
+        Ok(())
     }
 
     pub fn set_list_color(&self, id: &str, color: &str) -> Result<(), String> {
@@ -442,19 +461,24 @@ impl Db {
                 params![id, color],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.touch(SyncEntity::List, id)
     }
 
     pub fn create_task(&self, id: &str, list_id: &str, title: &str) -> Result<(), String> {
+        let now = now_ms();
         self.conn()
             .execute(
-                "INSERT INTO tasks (id, list_id, title, description, due_date, due_time, repeat_json, position)
+                "INSERT INTO tasks (id, list_id, title, description, due_date, due_time, repeat_json, position, updated_at)
                  VALUES (?1, ?2, ?3, '', NULL, NULL, NULL,
-                         (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE list_id = ?2))",
-                params![id, list_id, title],
+                         (SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE list_id = ?2), ?4)",
+                params![id, list_id, title, now],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.mark_dirty(SyncEntity::Task, id)
     }
 
     pub fn rename_task(&self, id: &str, title: &str) -> Result<(), String> {
@@ -464,7 +488,9 @@ impl Db {
                 params![id, title],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.touch(SyncEntity::Task, id)
     }
 
     pub fn set_task_due(
@@ -481,7 +507,8 @@ impl Db {
             .map(|_| ())
             .map_err(|e| e.to_string())?;
 
-        self.refresh_notification_state(id)
+        self.refresh_notification_state(id)?;
+        self.touch(SyncEntity::Task, id)
     }
 
     pub fn set_task_description(&self, id: &str, description: &str) -> Result<(), String> {
@@ -491,7 +518,9 @@ impl Db {
                 params![id, description],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.touch(SyncEntity::Task, id)
     }
 
     /// Sets (or clears) the repeat rule and re-anchors the active occurrence.
@@ -517,6 +546,7 @@ impl Db {
             .map_err(|e| e.to_string())?;
 
         self.refresh_notification_state(id)?;
+        self.touch(SyncEntity::Task, id)?;
         self.get_task(id)?.ok_or_else(|| format!("no task with id {id}"))
     }
 
@@ -576,6 +606,7 @@ impl Db {
                     params![id, index],
                 )
                 .map_err(|e| e.to_string())?;
+            self.touch(SyncEntity::Task, id)?;
         } else {
             self.conn()
                 .execute(
@@ -585,6 +616,7 @@ impl Db {
                     params![id, next, index],
                 )
                 .map_err(|e| e.to_string())?;
+            self.touch(SyncEntity::Task, id)?;
         }
 
         self.refresh_notification_state(id)?;
@@ -636,12 +668,273 @@ impl Db {
                 params![id, completed as i64, next_occurrence, occurrence_index],
             )
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+
+        self.touch(SyncEntity::Task, id)
     }
 
     pub fn delete_task(&self, id: &str) -> Result<(), String> {
         self.conn()
             .execute("DELETE FROM tasks WHERE id = ?1", params![id])
+            .map(|_| ())
+            .map_err(|e| e.to_string())?;
+
+        // The row is gone, but the remote object still has to be deleted —
+        // the tombstone in `sync_links` keeps that job (and stops a pull
+        // from bringing the task back).
+        self.mark_deleted(SyncEntity::Task, id)
+    }
+
+    // --- sync bookkeeping ---------------------------------------------------
+
+    /// The ids of the tasks in a list.
+    fn task_ids_of(&self, list_id: &str) -> Result<Vec<String>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare("SELECT id FROM tasks WHERE list_id = ?1")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![list_id], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
+    /// Records that a local entity changed and still has to be pushed.
+    fn mark_dirty(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
+        let now = now_ms();
+        self.conn()
+            .execute(
+                "INSERT INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
+                 VALUES (?1, ?2, 1, 0, ?3)
+                 ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                     dirty = 1,
+                     deleted = 0,
+                     updated_at = excluded.updated_at",
+                params![entity.as_str(), id, now],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Records that an entity was deleted locally.
+    ///
+    /// The tombstone keeps the remote id, so the remote object can be
+    /// deleted, and keeps the pull from resurrecting the entity.
+    fn mark_deleted(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
+        let now = now_ms();
+        self.conn()
+            .execute(
+                "INSERT INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
+                 VALUES (?1, ?2, 1, 1, ?3)
+                 ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                     dirty = 1,
+                     deleted = 1,
+                     updated_at = excluded.updated_at",
+                params![entity.as_str(), id, now],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Stamps a local change: the entity's `updated_at` moves forward and the
+    /// outbox learns that the change still has to be pushed.
+    fn touch(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
+        let now = now_ms();
+        let table = match entity {
+            SyncEntity::List => "lists",
+            SyncEntity::Task => "tasks",
+        };
+
+        self.conn()
+            .execute(
+                &format!("UPDATE {table} SET updated_at = ?2 WHERE id = ?1"),
+                params![id, now],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())?;
+
+        self.mark_dirty(entity, id)
+    }
+
+    /// The outbox: every entity with local changes that are not pushed yet.
+    ///
+    /// Lists come first — a task cannot be pushed before the calendar it
+    /// belongs to exists.
+    pub fn pending_links(&self) -> Result<Vec<SyncLink>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at
+                 FROM sync_links
+                 WHERE dirty = 1
+                 ORDER BY CASE entity_type WHEN 'list' THEN 0 ELSE 1 END, updated_at",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)? != 0,
+                    row.get::<_, i64>(4)? != 0,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        let mut links = Vec::new();
+        for row in rows {
+            let (entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at) =
+                row.map_err(|e| e.to_string())?;
+            let Some(entity) = SyncEntity::parse(&entity_type) else {
+                continue;
+            };
+            links.push(SyncLink {
+                entity,
+                entity_id,
+                remote_id,
+                dirty,
+                deleted,
+                updated_at,
+                synced_at,
+            });
+        }
+
+        Ok(links)
+    }
+
+    /// How many local changes are waiting to be pushed.
+    pub fn pending_count(&self) -> Result<i64, String> {
+        self.conn()
+            .query_row("SELECT COUNT(*) FROM sync_links WHERE dirty = 1", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| e.to_string())
+    }
+
+    /// The outbox row of one entity, if there is one.
+    pub fn link(&self, entity: SyncEntity, id: &str) -> Result<Option<SyncLink>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at
+                 FROM sync_links WHERE entity_type = ?1 AND entity_id = ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut rows = stmt
+            .query_map(params![entity.as_str(), id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)? != 0,
+                    row.get::<_, i64>(4)? != 0,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        match rows.next() {
+            Some(row) => {
+                let (entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at) =
+                    row.map_err(|e| e.to_string())?;
+                Ok(Some(SyncLink {
+                    entity: SyncEntity::parse(&entity_type).unwrap_or(entity),
+                    entity_id,
+                    remote_id,
+                    dirty,
+                    deleted,
+                    updated_at,
+                    synced_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Remembers which Google object a local entity belongs to.
+    pub fn set_remote_id(&self, entity: SyncEntity, id: &str, remote_id: &str) -> Result<(), String> {
+        self.conn()
+            .execute(
+                "INSERT INTO sync_links (entity_type, entity_id, remote_id, dirty, updated_at)
+                 VALUES (?1, ?2, ?3, 1, ?4)
+                 ON CONFLICT(entity_type, entity_id) DO UPDATE SET remote_id = excluded.remote_id",
+                params![entity.as_str(), id, remote_id, now_ms()],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Marks an entity as pushed.
+    pub fn mark_synced(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
+        self.conn()
+            .execute(
+                "UPDATE sync_links SET dirty = 0, synced_at = ?3
+                 WHERE entity_type = ?1 AND entity_id = ?2",
+                params![entity.as_str(), id, now_ms()],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// Drops an outbox row — used once a remote delete is confirmed.
+    pub fn drop_link(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
+        self.conn()
+            .execute(
+                "DELETE FROM sync_links WHERE entity_type = ?1 AND entity_id = ?2",
+                params![entity.as_str(), id],
+            )
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    /// When a local entity was last changed (unix milliseconds).
+    pub fn entity_updated_at(&self, entity: SyncEntity, id: &str) -> Result<Option<i64>, String> {
+        let table = match entity {
+            SyncEntity::List => "lists",
+            SyncEntity::Task => "tasks",
+        };
+        self.conn()
+            .query_row(
+                &format!("SELECT updated_at FROM {table} WHERE id = ?1"),
+                params![id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(Some)
+            .or_else(|err| match err {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other.to_string()),
+            })
+    }
+
+    /// Reads a value from the small connection-state store.
+    pub fn sync_state(&self, key: &str) -> Result<Option<String>, String> {
+        self.conn()
+            .query_row("SELECT value FROM sync_state WHERE key = ?1", params![key], |row| {
+                row.get::<_, String>(0)
+            })
+            .map(Some)
+            .or_else(|err| match err {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other.to_string()),
+            })
+    }
+
+    /// Writes a value into the connection-state store.
+    pub fn set_sync_state(&self, key: &str, value: &str) -> Result<(), String> {
+        self.conn()
+            .execute(
+                "INSERT INTO sync_state (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![key, value],
+            )
             .map(|_| ())
             .map_err(|e| e.to_string())
     }
@@ -697,10 +990,11 @@ fn load_tasks(conn: &Connection, list_id: &str) -> Result<Vec<Task>, String> {
 fn init_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS lists (
-             id       TEXT PRIMARY KEY,
-             name     TEXT NOT NULL,
-             color    TEXT NOT NULL,
-             position INTEGER NOT NULL
+             id         TEXT PRIMARY KEY,
+             name       TEXT NOT NULL,
+             color      TEXT NOT NULL,
+             position   INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL DEFAULT 0
          );
 
          CREATE TABLE IF NOT EXISTS tasks (
@@ -711,16 +1005,70 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
              due_date    TEXT,
              due_time    TEXT,
              repeat_json TEXT,
-             position    INTEGER NOT NULL
+             position    INTEGER NOT NULL,
+             updated_at  INTEGER NOT NULL DEFAULT 0
          );
 
-         CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);",
+         CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
+
+         -- The outbox, the id mapping and the tombstone log in one table.
+         CREATE TABLE IF NOT EXISTS sync_links (
+             entity_type TEXT    NOT NULL,
+             entity_id   TEXT    NOT NULL,
+             remote_id   TEXT,
+             dirty       INTEGER NOT NULL DEFAULT 1,
+             deleted     INTEGER NOT NULL DEFAULT 0,
+             updated_at  INTEGER NOT NULL DEFAULT 0,
+             synced_at   INTEGER NOT NULL DEFAULT 0,
+             PRIMARY KEY (entity_type, entity_id)
+         );
+
+         -- Small key/value store for the connection state.
+         CREATE TABLE IF NOT EXISTS sync_state (
+             key   TEXT PRIMARY KEY,
+             value TEXT NOT NULL
+         );",
     )
     .map_err(|e| e.to_string())?;
 
     // Columns added after the first release — ALTER TABLE for existing files.
+    ensure_columns(
+        conn,
+        "tasks",
+        &[
+            ("completed", "INTEGER NOT NULL DEFAULT 0"),
+            ("next_occurrence", "TEXT"),
+            ("occurrence_index", "INTEGER NOT NULL DEFAULT 0"),
+            ("notified_key", "TEXT"),
+            ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
+        ],
+    )?;
+    ensure_columns(conn, "lists", &[("updated_at", "INTEGER NOT NULL DEFAULT 0")])?;
+
+    // Everything that already existed when the sync was introduced has to be
+    // queued once — otherwise the old lists and tasks would never reach
+    // Google. `INSERT OR IGNORE` keeps the rows that are already there, so
+    // this only ever adds what is missing.
+    conn.execute_batch(
+        "INSERT OR IGNORE INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
+         SELECT 'list', id, 1, 0, updated_at FROM lists;
+
+         INSERT OR IGNORE INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
+         SELECT 'task', id, 1, 0, updated_at FROM tasks;",
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Adds the given columns to `table` if they are not there yet.
+fn ensure_columns(
+    conn: &Connection,
+    table: &str,
+    columns: &[(&str, &str)],
+) -> Result<(), String> {
     let mut stmt = conn
-        .prepare("PRAGMA table_info(tasks)")
+        .prepare(&format!("PRAGMA table_info({table})"))
         .map_err(|e| e.to_string())?;
     let existing = stmt
         .query_map([], |row| row.get::<_, String>(1))
@@ -729,15 +1077,10 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     drop(stmt);
 
-    for (name, declaration) in [
-        ("completed", "INTEGER NOT NULL DEFAULT 0"),
-        ("next_occurrence", "TEXT"),
-        ("occurrence_index", "INTEGER NOT NULL DEFAULT 0"),
-        ("notified_key", "TEXT"),
-    ] {
+    for (name, declaration) in columns {
         if !existing.iter().any(|column| column == name) {
             conn.execute(
-                &format!("ALTER TABLE tasks ADD COLUMN {name} {declaration}"),
+                &format!("ALTER TABLE {table} ADD COLUMN {name} {declaration}"),
                 [],
             )
             .map_err(|e| e.to_string())?;
@@ -745,6 +1088,11 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// The current time in unix milliseconds — the stamp of a local change.
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
 }
 
 #[cfg(test)]
@@ -944,6 +1292,15 @@ mod tests {
         assert!(!task.completed);
         assert_eq!(task.next_occurrence, None);
         assert_eq!(task.occurrence_index, 0);
+
+        // The old list and task are queued for the sync — they would
+        // otherwise never reach Google.
+        let pending = db.pending_links().unwrap();
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[0].entity, SyncEntity::List);
+        assert_eq!(pending[0].entity_id, "l1");
+        assert_eq!(pending[1].entity, SyncEntity::Task);
+        assert_eq!(pending[1].entity_id, "t1");
     }
 
     #[test]
@@ -1025,6 +1382,130 @@ mod tests {
         db.reset_notifications().unwrap();
         let tasks = db.tasks_for_notifications().unwrap();
         assert_eq!(tasks[0].task.notified_key, None);
+    }
+
+    // --- sync bookkeeping ---------------------------------------------------
+
+    #[test]
+    fn creating_a_list_queues_it_for_the_sync() {
+        let db = temp_db("outbox-create");
+
+        db.create_list("l1", "Groceries", "#3b82f6").unwrap();
+
+        let pending = db.pending_links().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].entity, SyncEntity::List);
+        assert_eq!(pending[0].entity_id, "l1");
+        assert!(pending[0].dirty);
+        assert!(!pending[0].deleted);
+        assert_eq!(pending[0].remote_id, None);
+        assert!(pending[0].updated_at > 0);
+    }
+
+    #[test]
+    fn the_outbox_puts_lists_before_their_tasks() {
+        let db = temp_db("outbox-order");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Milk").unwrap();
+
+        let pending = db.pending_links().unwrap();
+        assert_eq!(pending.len(), 2);
+        assert_eq!(pending[0].entity, SyncEntity::List);
+        assert_eq!(pending[1].entity, SyncEntity::Task);
+    }
+
+    #[test]
+    fn a_change_after_a_push_queues_the_entity_again() {
+        let db = temp_db("outbox-redirty");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.set_remote_id(SyncEntity::List, "l1", "cal-1").unwrap();
+        db.mark_synced(SyncEntity::List, "l1").unwrap();
+        assert_eq!(db.pending_count().unwrap(), 0);
+
+        let before = db.entity_updated_at(SyncEntity::List, "l1").unwrap().unwrap();
+        db.rename_list("l1", "Renamed").unwrap();
+        let after = db.entity_updated_at(SyncEntity::List, "l1").unwrap().unwrap();
+
+        assert!(after >= before);
+        assert_eq!(db.pending_count().unwrap(), 1);
+
+        let link = db.link(SyncEntity::List, "l1").unwrap().unwrap();
+        assert!(link.dirty);
+        // The remote id is kept — the push updates the same calendar.
+        assert_eq!(link.remote_id.as_deref(), Some("cal-1"));
+    }
+
+    #[test]
+    fn deleting_a_task_leaves_a_tombstone() {
+        let db = temp_db("outbox-tombstone");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Milk").unwrap();
+        db.mark_synced(SyncEntity::List, "l1").unwrap();
+        db.set_remote_id(SyncEntity::Task, "t1", "evt-1").unwrap();
+        db.mark_synced(SyncEntity::Task, "t1").unwrap();
+
+        db.delete_task("t1").unwrap();
+
+        assert!(db.load().unwrap().lists[0].tasks.is_empty());
+
+        let link = db.link(SyncEntity::Task, "t1").unwrap().unwrap();
+        assert!(link.deleted);
+        assert!(link.dirty);
+        assert_eq!(link.remote_id.as_deref(), Some("evt-1"));
+        assert_eq!(db.pending_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn deleting_a_list_tombstones_its_tasks_too() {
+        let db = temp_db("outbox-list-tombstone");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Milk").unwrap();
+        db.create_task("t2", "l1", "Bread").unwrap();
+
+        db.delete_list("l1").unwrap();
+
+        let list = db.link(SyncEntity::List, "l1").unwrap().unwrap();
+        assert!(list.deleted);
+        for id in ["t1", "t2"] {
+            let task = db.link(SyncEntity::Task, id).unwrap().unwrap();
+            assert!(task.deleted, "task {id} needs a tombstone");
+        }
+        assert_eq!(db.pending_count().unwrap(), 3);
+    }
+
+    #[test]
+    fn completing_a_task_queues_it() {
+        let db = temp_db("outbox-complete");
+        db.create_list("l1", "List", "#3b82f6").unwrap();
+        db.create_task("t1", "l1", "Milk").unwrap();
+        db.mark_synced(SyncEntity::List, "l1").unwrap();
+        db.mark_synced(SyncEntity::Task, "t1").unwrap();
+        assert_eq!(db.pending_count().unwrap(), 0);
+
+        db.set_task_completed("t1", true).unwrap();
+
+        assert_eq!(db.pending_count().unwrap(), 1);
+        let link = db.link(SyncEntity::Task, "t1").unwrap().unwrap();
+        assert!(link.dirty);
+        assert!(!link.deleted);
+    }
+
+    #[test]
+    fn the_connection_state_round_trips() {
+        let db = temp_db("outbox-state");
+        assert_eq!(db.sync_state(sync::STATE_ENABLED).unwrap(), None);
+
+        db.set_sync_state(sync::STATE_ENABLED, "1").unwrap();
+        db.set_sync_state(sync::STATE_ACCOUNT, "user@example.com").unwrap();
+
+        assert_eq!(
+            db.sync_state(sync::STATE_ENABLED).unwrap().as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            db.sync_state(sync::STATE_ACCOUNT).unwrap().as_deref(),
+            Some("user@example.com")
+        );
     }
 
     #[test]
