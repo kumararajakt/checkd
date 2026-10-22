@@ -18,7 +18,7 @@ jobs:
     name: Check
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -64,7 +64,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -97,7 +97,7 @@ jobs:
       # The bundler downloads linuxdeploy & co. into ~/.cache/tauri — caching
       # them keeps the build off the network (and off the flaky GitHub CDN).
       - name: Cache the AppImage bundling tools
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/tauri
           key: tauri-bundle-tools-${{ runner.os }}-${{ hashFiles('bun.lock', 'src-tauri/Cargo.lock') }}
@@ -119,7 +119,7 @@ jobs:
           fi
 
       - name: Upload the AppImage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: checkd-appimage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
