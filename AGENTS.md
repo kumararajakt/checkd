@@ -62,6 +62,9 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 - Sync commands: `google_status`, `google_credentials_status`, `google_sign_in`, `google_sign_out`, `google_sync_now`. `google_sign_in` is generic over the runtime (`AppHandle<R>`) so the mock runtime can call it.
 - The Google client sits behind the `GoogleClient` trait and the secrets behind the `SecretStore` trait — the IPC tests inject a fake for both and never touch the network or the real keyring.
 - checkd's calendars live in their own namespace (`location: "checkd"`); adventure_list uses `location: "adventure_list"`. The two apps never touch each other's calendars.
+- **The push** (`sync/payload.rs` + the drain in `sync/mod.rs`): a list becomes a Calendar, a task becomes an Event — the whole task travels as JSON in the description (`iCalUID` = the task id, `status: "confirmed"`, both dates parked on `2022-06-27`). The payload has a `version`; a payload of a newer app is ignored. `notified_key` never goes out.
+- The outbox is drained row by row (lists first, their tasks after them). A row that fails stays dirty and does not stop the others; a 404 means the remote object is gone (a delete counts as done, an update creates it again). `sync_links.parent_id` keeps the list of a deleted task, so its event can still be removed.
+- The **pull** (the other direction) is not there yet — the design lives in `docs/google-calendar-sync-design.md` (§7.2, §7.3). Until it lands, checkd only sends.
 
 ## Tauri 2 gotchas
 

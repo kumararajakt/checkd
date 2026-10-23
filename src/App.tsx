@@ -44,6 +44,14 @@ function App() {
       })
       .catch((err) => setError(`Could not load data: ${err}`))
       .finally(() => setLoading(false));
+
+    db.googleStatus()
+      .then((status) => {
+        if (status.connected) {
+          db.googleSyncNow().catch(() => {});
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Keep the clock ticking — without it an overdue task would keep its old
@@ -93,7 +101,15 @@ function App() {
     setLists((prev) => [...prev, list]);
     setSelectedId(list.id);
     updateSettings({ lastListId: list.id });
-    persist(db.createList(list.id, list.name, list.color));
+    persist(db.createList(list.id, list.name, list.color)).then(() => {
+      db.googleStatus()
+        .then((status) => {
+          if (status.connected) {
+            db.googleSyncNow().catch(() => {});
+          }
+        })
+        .catch(() => {});
+    });
   }
 
   function updateTasks(listId: string, update: (tasks: List["tasks"]) => List["tasks"]) {
@@ -119,7 +135,15 @@ function App() {
       occurrenceIndex: 0,
     };
     updateTasks(listId, (tasks) => [...tasks, task]);
-    persist(db.createTask(task.id, listId, task.title));
+    persist(db.createTask(task.id, listId, task.title)).then(() => {
+      db.googleStatus()
+        .then((status) => {
+          if (status.connected) {
+            db.googleSyncNow().catch(() => {});
+          }
+        })
+        .catch(() => {});
+    });
   }
 
   function renameTask(listId: string, taskId: string, title: string) {

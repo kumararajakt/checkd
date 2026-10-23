@@ -34,16 +34,7 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** When the last sync ran, in words. */
-function sinceLabel(at: number | null): string {
-  if (!at) return "never";
-  const minutes = Math.round((Date.now() - at) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return new Date(at).toLocaleDateString();
-}
+
 
 /**
  * The Google Calendar section.
@@ -85,14 +76,24 @@ function GoogleSyncSection() {
     setBusy(true);
     setError(null);
     try {
-      setStatus(await action());
+      const result = await action();
+      setStatus(result);
+      if (action === db.googleSignIn) {
+        try {
+          setStatus(await db.googleSyncNow());
+        } catch (e) {
+          setError(messageOf(e));
+          try {
+            setStatus(await db.googleStatus());
+          } catch {
+          }
+        }
+      }
     } catch (e) {
       setError(messageOf(e));
-      // The status may have moved on (a failed sync writes the reason down).
       try {
         setStatus(await db.googleStatus());
       } catch {
-        // Nothing more we can do here.
       }
     } finally {
       setBusy(false);
@@ -185,14 +186,9 @@ function GoogleSyncSection() {
 
         <p className="text-xs text-gray-500 dark:text-gray-400">
           {connected ? (
-            <>
-              Connected as {status?.account ?? "your Google account"} ·{" "}
-              {status?.pending ?? 0} change
-              {(status?.pending ?? 0) === 1 ? "" : "s"} waiting · last checked{" "}
-              {sinceLabel(status?.lastSyncAt ?? null)}
-            </>
+            <>Connected as {status?.account ?? "your Google account"}</>
           ) : configured ? (
-            "Connect to give checkd access to your calendars."
+            "Sign in to give checkd access to your calendars."
           ) : (
             "Until then checkd stays a local-only app."
           )}
