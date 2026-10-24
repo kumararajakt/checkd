@@ -175,8 +175,14 @@ fn builder<R: tauri::Runtime>(db: Option<Db>, sync: SyncManager) -> tauri::Build
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    builder::<tauri::Wry>(None, SyncManager::new())
-        .setup(|app| {
+    let mut b = builder::<tauri::Wry>(None, SyncManager::new());
+    #[cfg(desktop)]
+    {
+        b = b.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }));
+    }
+    b.setup(|app| {
             app.manage(Db::open(app.handle())?);
             app.state::<SyncManager>()
                 .set_app_handle(app.handle().clone());
