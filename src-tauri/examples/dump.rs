@@ -1,11 +1,3 @@
-//! Prints the app database as the frontend would receive it.
-//!
-//! ```sh
-//! cargo run --example dump -- [path-to-checkd.db]
-//! ```
-//!
-//! Without an argument it reads the database from the platform app-data dir.
-
 use std::path::PathBuf;
 
 use checkd_lib::db::Db;
@@ -26,7 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Mirrors Tauri's app-data dir for the `com.kumar.checkd` identifier.
 fn dirs_data_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     if let Ok(dir) = std::env::var("XDG_DATA_HOME") {
         return Ok(PathBuf::from(dir).join("com.kumar.checkd"));

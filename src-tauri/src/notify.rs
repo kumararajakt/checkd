@@ -1,10 +1,3 @@
-//! Desktop notifications for tasks that come due.
-//!
-//! A background thread polls the database, fires a notification when a task
-//! reaches its due moment, and sleeps until the next moment is due. It runs
-//! for the whole life of the app — including while the window is hidden in
-//! the tray.
-
 use std::thread;
 use std::time::Duration;
 
@@ -14,18 +7,12 @@ use tauri_plugin_notification::NotificationExt;
 
 use crate::db::{Db, Task, TaskWithList};
 
-/// Event sent to the frontend when the scheduler changed the data.
 pub const DATA_CHANGED: &str = "data-changed";
 
-/// Longest the scheduler sleeps before looking at the database again — data
-/// can change (a new task, a new due date) at any time.
 const MAX_SLEEP: Duration = Duration::from_secs(60);
 
-/// Starts the notification scheduler.
 pub fn spawn(app: AppHandle) {
     thread::spawn(move || {
-        // Every launch starts a fresh reminder session: everything that is
-        // overdue is mentioned again, no matter how long ago it was due.
         if let Some(db) = app.try_state::<Db>() {
             if let Err(err) = db.reset_notifications() {
                 eprintln!("could not reset the notification state: {err}");
@@ -39,16 +26,12 @@ pub fn spawn(app: AppHandle) {
     });
 }
 
-/// Fires every notification that is due and returns how long to wait before
-/// the next check.
 fn tick(app: &AppHandle) -> Duration {
     let now = Local::now().naive_local();
     let Some(db) = app.try_state::<Db>() else {
         return MAX_SLEEP;
     };
 
-    // A repeating task whose occurrence was missed moves on, so the series
-    // keeps reminding instead of going silent.
     match db.roll_forward_missed(now) {
         Ok(true) => {
             let _ = app.emit(DATA_CHANGED, ());
@@ -81,15 +64,11 @@ fn tick(app: &AppHandle) -> Duration {
     }
 }
 
-/// What the scheduler has to do at a given moment.
 pub struct Plan {
-    /// The reminders that are due: task id, notification key, task, list name.
     pub due: Vec<(String, String, Task, String)>,
-    /// The moment of the next reminder.
     pub next: Option<NaiveDateTime>,
 }
 
-/// Works out which reminders are due and when the next one is.
 pub fn plan(tasks: &[TaskWithList], now: NaiveDateTime) -> Plan {
     let mut due = Vec::new();
     let mut next: Option<NaiveDateTime> = None;
@@ -100,7 +79,6 @@ pub fn plan(tasks: &[TaskWithList], now: NaiveDateTime) -> Plan {
         };
 
         if moment > now {
-            // Still to come — wake up exactly when it is due.
             next = Some(match next {
                 Some(current) if current <= moment => current,
                 _ => moment,
@@ -108,9 +86,6 @@ pub fn plan(tasks: &[TaskWithList], now: NaiveDateTime) -> Plan {
             continue;
         }
 
-        // The moment has passed: remind the user about it once per occurrence.
-        // Reminders already sent in this session are skipped, so nothing
-        // repeats while the app is running.
         if entry.task.notified_key.as_deref() == Some(key.as_str()) {
             continue;
         }
@@ -126,7 +101,6 @@ pub fn plan(tasks: &[TaskWithList], now: NaiveDateTime) -> Plan {
     Plan { due, next }
 }
 
-/// Shows a desktop notification. Returns whether it was delivered.
 fn send(
     app: &AppHandle,
     list_name: &str,
@@ -231,15 +205,12 @@ mod tests {
         assert_eq!(schedule.due.len(), 1);
         assert_eq!(schedule.due[0].1, "due:2026-10-21T18:00");
 
-        // Once it has been sent, the same occurrence is not repeated.
         let tasks = vec![entry(task_with(Some("due:2026-10-21T18:00")))];
         assert!(plan(&tasks, now).due.is_empty());
     }
 
     #[test]
     fn an_old_overdue_task_is_reminded_too() {
-        // A task that has been due for days is still worth mentioning when
-        // the app is opened.
         let now = at("2026-10-25 09:00");
         let tasks = vec![entry(task_with(None))];
 

@@ -6,7 +6,6 @@ import type { CredentialsStatus, SyncStatus } from "../types";
 type SettingsDialogProps = {
   settings: Settings;
   onChange: (patch: Partial<Settings>) => void;
-  /** Resolves to a human-readable status message (e.g. the exported path). */
   onExport: () => Promise<string>;
   onClose: () => void;
 };
@@ -29,12 +28,10 @@ const THEMES: { value: Theme; label: string; icon: string }[] = [
   },
 ];
 
-/** The message of a failed call. */
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** When the last sync ran, in words. */
 function sinceLabel(at: number | null): string {
   if (!at) return "never";
   const minutes = Math.round((Date.now() - at) / 60000);
@@ -45,16 +42,6 @@ function sinceLabel(at: number | null): string {
   return new Date(at).toLocaleDateString();
 }
 
-
-
-/**
- * The Google Calendar section.
- *
- * checkd does not ship an OAuth client of its own — the app reads the user's
- * own Desktop OAuth client from the environment
- * (`CHECKD_GOOGLE_CLIENT_ID` / `CHECKD_GOOGLE_CLIENT_SECRET`, or a `.env`
- * file). Nothing here talks to Google until the user connects an account.
- */
 function GoogleSyncSection() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [credentials, setCredentials] = useState<CredentialsStatus | null>(null);

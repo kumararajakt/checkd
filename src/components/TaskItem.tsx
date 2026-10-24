@@ -5,7 +5,6 @@ import TimeModal from "./TimeModal";
 
 type TaskItemProps = {
   task: Task;
-  /** Current time — decides whether the task counts as overdue. */
   now: Date;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -30,10 +29,8 @@ const REPEAT_ICON =
 const CLOCK_ICON =
   "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z";
 
-/** Time of day a task counts as due at when it has no time of its own. */
 const DEFAULT_DUE_TIME = "09:00";
 
-/** Format YYYY-MM-DD as e.g. "Oct 24, 2026" (parsed as a local date, not UTC). */
 function formatDueDate(dueDate: string): string {
   const [y, m, d] = dueDate.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(undefined, {
@@ -43,7 +40,6 @@ function formatDueDate(dueDate: string): string {
   });
 }
 
-/** Format HH:MM as e.g. "5:30 PM". */
 function formatDueTime(dueTime: string): string {
   const [h, m] = dueTime.split(":").map(Number);
   return new Date(2000, 0, 1, h, m).toLocaleTimeString(undefined, {
@@ -52,24 +48,16 @@ function formatDueTime(dueTime: string): string {
   });
 }
 
-/** Today as YYYY-MM-DD in local time (string-comparable with stored due dates). */
 function todayString(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** Current time as HH:MM in local time (string-comparable with stored due times). */
 function nowTimeString(now: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(now.getHours())}:${pad(now.getMinutes())}`;
 }
 
-/**
- * The date and time the task is currently due.
- *
- * A repeating task is due at its active occurrence, a one-off task at its due
- * date. `null` when the task has no schedule at all.
- */
 function dueInfo(task: Task): { date: string; time: string | null } | null {
   if (task.repeat) {
     const date = task.nextOccurrence ?? task.dueDate;
@@ -80,11 +68,6 @@ function dueInfo(task: Task): { date: string; time: string | null } | null {
   return { date: task.dueDate, time: task.dueTime };
 }
 
-/**
- * Overdue (negative/red) when the date is before today; for a date equal to
- * today, overdue once the due time has passed. Tasks without a time of their
- * own count as due at 09:00 — the same moment the reminder fires.
- */
 function isOverdue(task: Task, now: Date): boolean {
   const due = dueInfo(task);
   if (!due) return false;
@@ -93,7 +76,6 @@ function isOverdue(task: Task, now: Date): boolean {
   return (due.time ?? DEFAULT_DUE_TIME) < nowTimeString(now);
 }
 
-/** Combined label like "Oct 24, 2026 · 5:30 PM". */
 function dueLabel(task: Task): string {
   const due = dueInfo(task);
   if (!due) return "";
@@ -101,26 +83,22 @@ function dueLabel(task: Task): string {
   return due.time ? `${date} · ${formatDueTime(due.time)}` : date;
 }
 
-/** Long weekday name for 0 = Sunday … 6 = Saturday (Jan 2, 2000 was a Sunday). */
 function weekdayName(day: number): string {
   return new Date(2000, 0, 2 + day).toLocaleDateString(undefined, {
     weekday: "long",
   });
 }
 
-/** "first" | "second" | "third" | "fourth" | "last" */
 function weekLabel(week: 1 | 2 | 3 | 4 | "last"): string {
   return week === "last" ? "last" : ["first", "second", "third", "fourth"][week - 1];
 }
 
-/** "Sunday", "Sunday and Monday", "Sunday, Monday and Friday". */
 function joinWeekdays(days: number[]): string {
   const names = days.map(weekdayName);
   if (names.length <= 1) return names[0] ?? "";
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-/** Short human summary, e.g. "Every 2 weeks on Sunday · until Oct 24, 2026". */
 function repeatSummary(repeat: Repeat): string {
   const base =
     repeat.interval === 1
@@ -295,15 +273,12 @@ export default function TaskItem({
         </button>
       </div>
 
-      {/* Accordion panel: due date controls + description */}
       <div
         className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${
           open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
         }`}
       >
         <div className="overflow-hidden">
-          {/* A repeating task is scheduled by its rule — the rule editor owns
-              the date and time, so the one-off controls stay out of the way. */}
           {!task.repeat && (
             <div className="flex items-center gap-2 px-3 pb-2 pl-9">
               {picking ? (

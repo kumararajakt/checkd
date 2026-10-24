@@ -1,5 +1,3 @@
-// Add Tauri commands here: https://tauri.app/develop/calling-rust/
-// Remember to register each one in `tauri::generate_handler![...]` below.
 pub mod db;
 pub mod notify;
 pub mod repeat;
@@ -16,7 +14,6 @@ use crate::sync::{CredentialsStatus, SyncManager, SyncStatus};
 
 const APP_ICON: tauri::image::Image<'static> = tauri::include_image!("icons/32x32.png");
 
-/// When enabled, closing the window hides it instead of quitting the app.
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
@@ -24,7 +21,6 @@ fn set_close_to_tray(enabled: bool) {
     CLOSE_TO_TRAY.store(enabled, Ordering::Relaxed);
 }
 
-/// Writes the exported app data to `path`, creating parent directories if needed.
 #[tauri::command]
 fn export_data(path: String, contents: String) -> Result<(), String> {
     let target = std::path::PathBuf::from(&path);
@@ -86,15 +82,11 @@ fn set_task_description(db: State<'_, Db>, id: String, description: String) -> R
     db.set_task_description(&id, &description)
 }
 
-/// Sets (or clears) the repeat rule and returns the updated task — the active
-/// occurrence is anchored to the rule.
 #[tauri::command]
 fn set_task_repeat(db: State<'_, Db>, id: String, repeat: Option<Repeat>) -> Result<Task, String> {
     db.set_task_repeat(&id, repeat.as_ref())
 }
 
-/// Marks a task done (or not done) and returns its updated state — a
-/// repeating task advances to its next occurrence.
 #[tauri::command]
 fn set_task_completed(db: State<'_, Db>, id: String, completed: bool) -> Result<Task, String> {
     db.set_task_completed(&id, completed)
@@ -105,21 +97,16 @@ fn delete_task(db: State<'_, Db>, id: String) -> Result<(), String> {
     db.delete_task(&id)
 }
 
-/// The state of the Google sync — the settings dialog reads this.
 #[tauri::command]
 fn google_status(sync: State<'_, SyncManager>, db: State<'_, Db>) -> SyncStatus {
     sync.status(&db)
 }
 
-/// The OAuth client the app found in the environment — the secret itself is
-/// never sent back.
 #[tauri::command]
 fn google_credentials_status(sync: State<'_, SyncManager>) -> Result<CredentialsStatus, String> {
     sync.credentials_status()
 }
 
-/// Runs the consent flow: the browser opens on Google's screen and the
-/// answer comes back to a loopback listener.
 #[tauri::command]
 async fn google_sign_in<R: tauri::Runtime>(
     app: AppHandle<R>,
@@ -129,7 +116,6 @@ async fn google_sign_in<R: tauri::Runtime>(
     sync.sign_in(app, &db).await
 }
 
-/// Gives the access back to Google and forgets the tokens.
 #[tauri::command]
 async fn google_sign_out(
     sync: State<'_, SyncManager>,
@@ -138,7 +124,6 @@ async fn google_sign_out(
     sync.sign_out(&db).await
 }
 
-/// Talks to Google now.
 #[tauri::command]
 async fn google_sync_now(
     sync: State<'_, SyncManager>,
@@ -154,10 +139,6 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// Builds the app with the shared plugins and command handlers.
-///
-/// `db` is managed up-front; pass `None` to open the real database in
-/// `setup` (it needs the app handle to resolve the app-data dir).
 fn builder<R: tauri::Runtime>(db: Option<Db>, sync: SyncManager) -> tauri::Builder<R> {
     let builder = tauri::Builder::<R>::new()
         .plugin(tauri_plugin_opener::init())
@@ -202,14 +183,10 @@ pub fn run() {
 
             let data_dir = app.path().app_data_dir().ok();
 
-            // Systems without a keyring keep the secrets in the app-data
-            // directory instead.
             if let Some(dir) = data_dir.clone() {
                 app.state::<SyncManager>().set_fallback_dir(dir);
             }
 
-            // The OAuth client comes from the environment — the app asks for
-            // no credentials.
             match app.state::<SyncManager>().load_client(data_dir) {
                 Ok(()) => {
                     if let Some(resolved) = app.state::<SyncManager>().resolved_client() {
@@ -223,7 +200,6 @@ pub fn run() {
                 Err(err) => eprintln!("could not read the Google OAuth client: {err}"),
             }
 
-            // Reminders keep firing while the window is hidden in the tray.
             notify::spawn(app.handle().clone());
 
             let show = MenuItem::with_id(app, "show", "Show checkd", true, None::<&str>)?;
@@ -252,7 +228,6 @@ pub fn run() {
                 })
                 .build(app);
 
-            // Not every desktop has a tray host — the app must still start.
             if let Err(err) = tray {
                 eprintln!("could not create tray icon: {err}");
             }
@@ -262,11 +237,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if CLOSE_TO_TRAY.load(Ordering::Relaxed) {
-                    // Keep the app running in the tray.
                     api.prevent_close();
                     let _ = window.hide();
                 } else {
-                    // No tray residency: closing the window quits the app.
                     window.app_handle().exit(0);
                 }
             }
@@ -286,7 +259,6 @@ mod ipc_tests {
     use tauri::test::{get_ipc_response, mock_context, noop_assets, MockRuntime};
     use tauri::webview::InvokeRequest;
 
-    /// A Google client that never talks to the network.
     #[derive(Debug, Default)]
     struct FakeGoogle {
         calendars: std::sync::Mutex<Vec<RemoteCalendar>>,
@@ -513,7 +485,6 @@ mod ipc_tests {
         }
     }
 
-    /// A mock app + webview that speaks the same IPC protocol as the real one.
     struct Ipc {
         _app: tauri::App<MockRuntime>,
         webview: tauri::WebviewWindow<MockRuntime>,
@@ -551,7 +522,6 @@ mod ipc_tests {
             }
         }
 
-        /// Simulates a connected Google account with a fresh access token.
         fn connect(&self) {
             let tokens = crate::sync::auth::Tokens {
                 access_token: "fake-token".to_string(),
@@ -564,7 +534,6 @@ mod ipc_tests {
             self.secrets.set("refresh-token", "fake-refresh").unwrap();
         }
 
-        /// Calls a command the way the frontend's `invoke` does.
         fn call(&self, cmd: &str, body: serde_json::Value) -> Result<InvokeResponseBody, serde_json::Value> {
             get_ipc_response(
                 &self.webview,
@@ -581,7 +550,6 @@ mod ipc_tests {
         }
     }
 
-    /// The payloads below are exactly what `src/db.ts` sends.
     #[test]
     fn frontend_commands_round_trip_through_sqlite() {
         let ipc = Ipc::new("roundtrip");
@@ -621,14 +589,12 @@ mod ipc_tests {
         )
         .expect("set_task_repeat");
 
-        // Null clears the optional columns.
         ipc.call(
             "set_task_due",
             serde_json::json!({ "id": "t1", "dueDate": null, "dueTime": null }),
         )
         .expect("clear due date");
 
-        // The frontend reads everything back with load_data.
         let response = ipc.call("load_data", serde_json::json!({})).expect("load_data");
         let data: AppData = response.deserialize().expect("deserialize app data");
 
@@ -679,8 +645,6 @@ mod ipc_tests {
         assert!(data.lists.is_empty());
     }
 
-    /// The time modal writes the picked time together with the date the task
-    /// already had — the date must survive the write.
     #[test]
     fn setting_the_time_keeps_the_due_date() {
         let ipc = Ipc::new("time-modal");
@@ -703,7 +667,6 @@ mod ipc_tests {
         )
         .expect("set_task_due");
 
-        // The modal sends the picked time along with the date it already had.
         ipc.call(
             "set_task_due",
             serde_json::json!({ "id": "t1", "dueDate": "2026-10-21", "dueTime": "17:45" }),
@@ -718,7 +681,6 @@ mod ipc_tests {
         assert_eq!(task.due_time.as_deref(), Some("17:45"));
     }
 
-    /// Completing a repeating task through the IPC advances the series.
     #[test]
     fn completing_a_repeating_task_through_ipc_advances_it() {
         let ipc = Ipc::new("complete");
@@ -760,15 +722,11 @@ mod ipc_tests {
             .expect("set_task_completed");
         let task: Task = response.deserialize().expect("deserialize task");
 
-        // The completed occurrence moved on to the next day. The rule starts
-        // in the future, so the test does not depend on today's date.
         assert!(!task.completed);
         assert_eq!(task.next_occurrence.as_deref(), Some("2030-01-02"));
         assert_eq!(task.occurrence_index, 1);
     }
 
-    /// The sync commands answer before a Google account is connected — and
-    /// the credentials never leave the environment.
     #[test]
     fn the_sync_commands_start_out_disconnected() {
         let ipc = Ipc::new("sync");
@@ -786,7 +744,6 @@ mod ipc_tests {
         assert!(!credentials.configured);
         assert_eq!(credentials.client_id, None);
 
-        // A sync without a connection fails with a readable message.
         let error = ipc
             .call("google_sync_now", serde_json::json!({}))
             .expect_err("sync without a connection");
@@ -797,7 +754,6 @@ mod ipc_tests {
         );
     }
 
-    /// Local changes wait in the outbox until they are pushed.
     #[test]
     fn local_changes_show_up_as_pending() {
         let ipc = Ipc::new("pending");
@@ -829,7 +785,6 @@ mod ipc_tests {
         )
         .expect("create_task");
 
-        // Push both to the fake Google client.
         let response = ipc
             .call("google_sync_now", serde_json::json!({}))
             .expect("google_sync_now");
@@ -849,7 +804,6 @@ mod ipc_tests {
             assert_eq!(list_evts[0].ical_uid.as_deref(), Some("t1"));
         }
 
-        // Rename the task and sync again — it updates in place instead of creating a second event.
         ipc.call(
             "rename_task",
             serde_json::json!({ "id": "t1", "title": "Oat milk" }),
@@ -871,7 +825,6 @@ mod ipc_tests {
             assert_eq!(list_evts[0].summary.as_deref(), Some("Oat milk"));
         }
 
-        // Delete the task and sync — the remote event is removed.
         ipc.call("delete_task", serde_json::json!({ "id": "t1" }))
             .expect("delete_task");
         ipc.call("google_sync_now", serde_json::json!({}))
@@ -885,7 +838,6 @@ mod ipc_tests {
             assert!(list_evts.is_empty());
         }
 
-        // Delete the list and sync — the remote calendar is removed.
         ipc.call("delete_list", serde_json::json!({ "id": "l1" }))
             .expect("delete_list");
         ipc.call("google_sync_now", serde_json::json!({}))
@@ -899,7 +851,6 @@ mod ipc_tests {
         let ipc = Ipc::new("pull");
         ipc.connect();
 
-        // Seed the fake Google client with a remote checkd calendar and task event.
         let list_payload = crate::sync::payload::list_payload_json(&crate::db::SyncList {
             id: "remote-l1".to_string(),
             name: "Work".to_string(),

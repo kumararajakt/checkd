@@ -1,8 +1,3 @@
-//! The Google Calendar REST client.
-//!
-//! Only the calls the sync needs are here. The client is written against a
-//! trait so the tests can run without a network.
-
 use std::future::Future;
 use std::pin::Pin;
 
@@ -10,86 +5,65 @@ use serde::Deserialize;
 
 use crate::sync::payload::{CalendarPayload, EventPayload};
 
-/// A boxed future — the client is used through a trait object.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// The namespace checkd puts its calendars in.
-///
-/// adventure_list uses `location: "adventure_list"`; checkd has its own, so
-/// the two apps never touch each other's calendars. The calendars are hidden
-/// from the user's calendar list.
 pub const NAMESPACE: &str = "checkd";
 
 const API_BASE: &str = "https://www.googleapis.com/calendar/v3";
 
-/// A calendar of the connected account.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RemoteCalendar {
     pub id: String,
     pub summary: Option<String>,
     pub description: Option<String>,
-    /// The namespace — `checkd` for the calendars that belong to this app.
     pub location: Option<String>,
-    /// Google leaves the flag out when the calendar is not hidden.
     #[serde(default)]
     pub hidden: bool,
-    /// Set by `calendarList.list` with `showDeleted=true` when removed.
     #[serde(default)]
     pub deleted: bool,
 }
 
-/// An event of a checkd calendar.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RemoteEvent {
     pub id: String,
-    /// The id of the local task this event mirrors.
     #[serde(rename = "iCalUID")]
     pub ical_uid: Option<String>,
     pub summary: Option<String>,
     pub description: Option<String>,
-    /// `cancelled` means the event was deleted on the Google side.
     pub status: Option<String>,
-    /// When the event was last changed on the Google side.
     pub updated: Option<String>,
 }
 
-/// The result of listing events.
 #[derive(Debug, Clone)]
 pub struct EventList {
     pub events: Vec<RemoteEvent>,
     pub next_sync_token: Option<String>,
 }
 
-/// The result of listing calendars.
 #[derive(Debug, Clone)]
 pub struct CalendarList {
     pub calendars: Vec<RemoteCalendar>,
     pub next_sync_token: Option<String>,
 }
 
-/// The Calendar calls the sync needs.
 pub trait GoogleClient: Send + Sync + std::fmt::Debug {
-    /// The calendars of the account that belong to checkd.
     fn list_calendars<'a>(
         &'a self,
         access_token: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteCalendar>, String>>;
 
-    /// The calendars of the account that belong to checkd with sync token support.
     fn list_calendars_delta<'a>(
         &'a self,
         access_token: &'a str,
         sync_token: Option<&'a str>,
     ) -> BoxFuture<'a, Result<CalendarList, String>>;
 
-    /// The events of one calendar.
     fn list_events<'a>(
         &'a self,
         access_token: &'a str,
         calendar_id: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteEvent>, String>>;
 
-    /// The events of one calendar with sync token support.
     fn list_events_delta<'a>(
         &'a self,
         access_token: &'a str,
@@ -97,14 +71,12 @@ pub trait GoogleClient: Send + Sync + std::fmt::Debug {
         sync_token: Option<&'a str>,
     ) -> BoxFuture<'a, Result<EventList, String>>;
 
-    /// Creates a secondary calendar for a list and hides it from the user's normal calendar list.
     fn create_calendar<'a>(
         &'a self,
         access_token: &'a str,
         calendar: &'a CalendarPayload,
     ) -> BoxFuture<'a, Result<RemoteCalendar, String>>;
 
-    /// Updates the metadata of a calendar.
     fn update_calendar<'a>(
         &'a self,
         access_token: &'a str,
@@ -112,21 +84,18 @@ pub trait GoogleClient: Send + Sync + std::fmt::Debug {
         calendar: &'a CalendarPayload,
     ) -> BoxFuture<'a, Result<RemoteCalendar, String>>;
 
-    /// Deletes a secondary calendar.
     fn delete_calendar<'a>(
         &'a self,
         access_token: &'a str,
         calendar_id: &'a str,
     ) -> BoxFuture<'a, Result<(), String>>;
 
-    /// Hides a calendar in the user's `calendarList`.
     fn hide_calendar<'a>(
         &'a self,
         access_token: &'a str,
         calendar_id: &'a str,
     ) -> BoxFuture<'a, Result<(), String>>;
 
-    /// Creates an event in a calendar.
     fn create_event<'a>(
         &'a self,
         access_token: &'a str,
@@ -134,7 +103,6 @@ pub trait GoogleClient: Send + Sync + std::fmt::Debug {
         event: &'a EventPayload,
     ) -> BoxFuture<'a, Result<RemoteEvent, String>>;
 
-    /// Updates an event in a calendar.
     fn update_event<'a>(
         &'a self,
         access_token: &'a str,
@@ -143,7 +111,6 @@ pub trait GoogleClient: Send + Sync + std::fmt::Debug {
         event: &'a EventPayload,
     ) -> BoxFuture<'a, Result<RemoteEvent, String>>;
 
-    /// Deletes an event from a calendar.
     fn delete_event<'a>(
         &'a self,
         access_token: &'a str,
@@ -152,7 +119,6 @@ pub trait GoogleClient: Send + Sync + std::fmt::Debug {
     ) -> BoxFuture<'a, Result<(), String>>;
 }
 
-/// The real client — talks to the Calendar API over HTTPS.
 #[derive(Debug)]
 pub struct GoogleApi {
     client: reqwest::Client,
@@ -167,7 +133,6 @@ impl GoogleApi {
         }
     }
 
-    /// Sends a GET and reads the JSON answer.
     async fn get_json<T: serde::de::DeserializeOwned>(
         &self,
         access_token: &str,
@@ -191,7 +156,6 @@ impl GoogleApi {
         serde_json::from_str(&body).map_err(|e| e.to_string())
     }
 
-    /// Sends a POST with a JSON body and reads the JSON answer.
     async fn post_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
         access_token: &str,
@@ -217,7 +181,6 @@ impl GoogleApi {
         serde_json::from_str(&body).map_err(|e| e.to_string())
     }
 
-    /// Sends a PUT with a JSON body and reads the JSON answer.
     async fn put_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
         &self,
         access_token: &str,
@@ -243,7 +206,6 @@ impl GoogleApi {
         serde_json::from_str(&body).map_err(|e| e.to_string())
     }
 
-    /// Sends a PATCH with a JSON body and ignores the response body on success.
     async fn patch_json<B: serde::Serialize>(
         &self,
         access_token: &str,
@@ -269,7 +231,6 @@ impl GoogleApi {
         Ok(())
     }
 
-    /// Sends a DELETE request.
     async fn delete_req(&self, access_token: &str, url: &str) -> Result<(), String> {
         let response = self
             .client
@@ -559,7 +520,6 @@ impl GoogleClient for GoogleApi {
     }
 }
 
-/// Percent-encodes a path segment.
 fn urlencode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
@@ -573,14 +533,10 @@ fn urlencode(value: &str) -> String {
     out
 }
 
-/// Turns Google's error answer into something a person can read.
 fn describe_error(body: &str, code: u16) -> String {
     let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
 
     if let Some(error) = parsed.get("error") {
-        // The Calendar API is not enabled in the project the OAuth client
-        // belongs to — the most common problem by far, and it has its own
-        // answer.
         if api_is_disabled(error) {
             let link = error
                 .get("message")
@@ -608,8 +564,6 @@ fn describe_error(body: &str, code: u16) -> String {
     }
 }
 
-/// Whether the answer says that the Calendar API is not enabled in the
-/// project the OAuth client belongs to.
 fn api_is_disabled(error: &serde_json::Value) -> bool {
     let message = error
         .get("message")
@@ -631,7 +585,6 @@ fn api_is_disabled(error: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// The first link in a message.
 fn link_in(message: &str) -> Option<&str> {
     let start = message.find("https://")?;
     let end = message[start..]
@@ -691,8 +644,6 @@ mod tests {
         assert_eq!(event.status.as_deref(), Some("confirmed"));
     }
 
-    /// The answer Google sends when the Calendar API is not enabled in the
-    /// project — the most common problem, and it deserves its own answer.
     #[test]
     fn a_disabled_api_gets_a_short_answer() {
         let body = r#"{
@@ -714,7 +665,6 @@ mod tests {
 
         assert!(message.starts_with("The Google Calendar API is not enabled"));
         assert!(message.contains("https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=871011474160"));
-        // The wall of text from Google does not reach the user.
         assert!(!message.contains("wait a few minutes"));
     }
 

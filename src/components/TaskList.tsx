@@ -4,7 +4,6 @@ import TaskItem from "./TaskItem";
 
 type TaskListProps = {
   list: List;
-  /** Current time — used to decide which tasks are overdue. */
   now: Date;
   onAdd: (listId: string, title: string) => void;
   onRename: (listId: string, taskId: string, title: string) => void;

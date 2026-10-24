@@ -7,16 +7,16 @@ type ColorModalProps = {
 };
 
 const COLORS = [
-  "#3b82f6", // blue
-  "#ef4444", // red
-  "#22c55e", // green
-  "#eab308", // yellow
-  "#f97316", // orange
-  "#ec4899", // pink
-  "#8b5cf6", // violet
-  "#14b8a6", // teal
-  "#64748b", // slate
-  "#1f2937", // gray
+  "#3b82f6",
+  "#ef4444",
+  "#22c55e",
+  "#eab308",
+  "#f97316",
+  "#ec4899",
+  "#8b5cf6",
+  "#14b8a6",
+  "#64748b",
+  "#1f2937",
 ];
 
 export default function ColorModal({ color, onPick, onClose }: ColorModalProps) {

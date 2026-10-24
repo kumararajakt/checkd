@@ -2,9 +2,7 @@ export type Theme = "system" | "light" | "dark";
 
 export type Settings = {
   theme: Theme;
-  /** Keep the app running in the system tray when the window is closed. */
   closeToTray: boolean;
-  /** The list that was open when the app was last closed. */
   lastListId: string | null;
 };
 
@@ -35,7 +33,6 @@ export function saveSettings(settings: Settings) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch {
-    // Storage unavailable (e.g. private mode) — settings just won't persist.
   }
 }
 
@@ -43,13 +40,11 @@ function prefersDark(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-/** Toggles the `dark` class on <html>, which drives Tailwind's `dark:` variants. */
 export function applyTheme(theme: Theme) {
   const dark = theme === "dark" || (theme === "system" && prefersDark());
   document.documentElement.classList.toggle("dark", dark);
 }
 
-/** Re-applies the theme when the OS colour scheme changes (system theme only). */
 export function watchSystemTheme(onChange: () => void): () => void {
   const mq = window.matchMedia("(prefers-color-scheme: dark)");
   mq.addEventListener("change", onChange);

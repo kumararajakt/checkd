@@ -99,7 +99,6 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Expand/collapse toggle pinned to the sidebar's outer edge */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}

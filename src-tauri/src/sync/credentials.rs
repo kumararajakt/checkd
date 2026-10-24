@@ -1,50 +1,20 @@
-//! Where the OAuth client comes from.
-//!
-//! checkd ships no OAuth client of its own — the app needs the user's own
-//! Desktop OAuth client from the Google Cloud console. It is not asked for in
-//! the settings dialog; it is read from the environment:
-//!
-//! ```text
-//! CHECKD_GOOGLE_CLIENT_ID=…      CHECKD_GOOGLE_CLIENT_SECRET=…
-//! ```
-//!
-//! The short names `CLIENT_ID` / `CLIENT_SECRET` work too — that is what a
-//! `.env` file next to the app usually looks like.
-//!
-//! The values are looked up in this order:
-//!
-//! 1. the process environment,
-//! 2. a `.env` file in the app-data directory,
-//! 3. a `.env` file in the working directory and one above it (so the app
-//!    finds the `.env` of the repository while it runs from `src-tauri/`).
-//!
-//! The environment always wins over a file — that is the usual convention and
-//! it lets a launcher script override the file.
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::sync::auth::OAuthClient;
 
-/// The environment variables that hold the client id.
 pub const CLIENT_ID_VARS: [&str; 2] = ["CHECKD_GOOGLE_CLIENT_ID", "CLIENT_ID"];
-/// The environment variables that hold the client secret.
 pub const CLIENT_SECRET_VARS: [&str; 2] = ["CHECKD_GOOGLE_CLIENT_SECRET", "CLIENT_SECRET"];
 
-/// The name of the file that is read when the environment says nothing.
 pub const ENV_FILE: &str = ".env";
 
-/// Where the OAuth client came from.
 #[derive(Debug, Clone)]
 pub enum ClientSource {
-    /// An environment variable.
     Environment(String),
-    /// A `.env` file.
     File(PathBuf),
 }
 
 impl ClientSource {
-    /// A short description for the settings dialog.
     pub fn describe(&self) -> String {
         match self {
             ClientSource::Environment(name) => format!("{name} (environment)"),
@@ -53,18 +23,13 @@ impl ClientSource {
     }
 }
 
-/// The OAuth client and where it came from.
 #[derive(Debug, Clone)]
 pub struct ResolvedClient {
     pub client: OAuthClient,
     pub source: ClientSource,
 }
 
-/// Finds the OAuth client.
-///
-/// `dirs` are the directories that are searched for a `.env` file.
 pub fn resolve_client(dirs: &[PathBuf]) -> Result<Option<ResolvedClient>, String> {
-    // The environment comes first.
     if let Some((id, id_var)) = env_value(&CLIENT_ID_VARS) {
         let (secret, _) = env_value(&CLIENT_SECRET_VARS).ok_or_else(|| {
             format!(
@@ -80,7 +45,6 @@ pub fn resolve_client(dirs: &[PathBuf]) -> Result<Option<ResolvedClient>, String
         }));
     }
 
-    // Then the `.env` files.
     for dir in dirs {
         let path = dir.join(ENV_FILE);
         let Ok(contents) = std::fs::read_to_string(&path) else {
@@ -108,7 +72,6 @@ pub fn resolve_client(dirs: &[PathBuf]) -> Result<Option<ResolvedClient>, String
     Ok(None)
 }
 
-/// The directories that are searched for a `.env` file.
 pub fn search_dirs(app_data_dir: Option<PathBuf>) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
 
@@ -126,7 +89,6 @@ pub fn search_dirs(app_data_dir: Option<PathBuf>) -> Vec<PathBuf> {
     dirs
 }
 
-/// The first of `names` that the environment has a value for.
 fn env_value(names: &[&str]) -> Option<(String, String)> {
     for name in names {
         if let Ok(value) = std::env::var(name) {
@@ -140,7 +102,6 @@ fn env_value(names: &[&str]) -> Option<(String, String)> {
     None
 }
 
-/// The first of `names` that the parsed file has a value for.
 fn file_value(values: &HashMap<String, String>, names: &[&str]) -> Option<(String, String)> {
     for name in names {
         if let Some(value) = values.get(*name) {
@@ -154,7 +115,6 @@ fn file_value(values: &HashMap<String, String>, names: &[&str]) -> Option<(Strin
     None
 }
 
-/// Parses a `.env` file: `KEY=value` lines, `#` comments, optional quotes.
 fn parse_env_file(contents: &str) -> HashMap<String, String> {
     let mut values = HashMap::new();
 
@@ -171,7 +131,6 @@ fn parse_env_file(contents: &str) -> HashMap<String, String> {
         let key = key.trim();
         let mut value = value.trim().to_string();
 
-        // The value may be quoted — the quotes are not part of it.
         if value.len() >= 2 {
             let first = value.chars().next().unwrap();
             let last = value.chars().last().unwrap();
@@ -186,7 +145,6 @@ fn parse_env_file(contents: &str) -> HashMap<String, String> {
     values
 }
 
-/// The file that would be read for a directory.
 pub fn env_file_in(dir: &Path) -> PathBuf {
     dir.join(ENV_FILE)
 }
@@ -221,7 +179,6 @@ mod tests {
         )
         .expect("write");
 
-        // The environment must not interfere with the test.
         if env_value(&CLIENT_ID_VARS).is_some() {
             return;
         }

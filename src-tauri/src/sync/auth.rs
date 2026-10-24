@@ -1,24 +1,13 @@
-//! Google OAuth — the consent flow, the token store and the account lookup.
-//!
-//! checkd never ships an OAuth client of its own: the user brings their own
-//! desktop OAuth client from the Google Cloud console and the app keeps it in
-//! the operating system's keyring. See `docs/google-calendar-sync-design.md`.
-
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-/// The scope checkd asks for — the same one adventure_list uses, so the
-/// consent screen reads the same for both apps.
 pub const CALENDAR_SCOPE: &str = "https://www.googleapis.com/auth/calendar";
 
-/// The scope that lets the app show *which* account is connected. Without it
-/// Google does not hand out the email address.
 pub const EMAIL_SCOPE: &str = "https://www.googleapis.com/auth/userinfo.email";
 
-/// The scopes the consent screen asks for.
 pub fn scopes() -> String {
     format!("{CALENDAR_SCOPE} {EMAIL_SCOPE}")
 }
@@ -29,7 +18,6 @@ const REVOKE_URL: &str = "https://oauth2.googleapis.com/revoke";
 const TOKENINFO_URL: &str = "https://oauth2.googleapis.com/tokeninfo";
 const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v3/userinfo";
 
-/// The user's own OAuth client (from the Google Cloud console).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OAuthClient {
     pub client_id: String,
@@ -37,7 +25,6 @@ pub struct OAuthClient {
 }
 
 impl OAuthClient {
-    /// Checks what the user pasted into the settings.
     pub fn validate(client_id: &str, client_secret: &str) -> Result<Self, String> {
         let client_id = client_id.trim();
         let client_secret = client_secret.trim();
@@ -59,40 +46,27 @@ impl OAuthClient {
     }
 }
 
-/// The tokens of a connected account.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tokens {
     pub access_token: String,
-    /// Missing when the tokens were refreshed — the old refresh token stays
-    /// valid, so the caller keeps the one it has.
     pub refresh_token: Option<String>,
-    /// When the access token expires (unix seconds).
     pub expires_at: i64,
 }
 
 impl Tokens {
-    /// Whether the access token is still usable.
     pub fn is_fresh(&self) -> bool {
         self.expires_at > chrono::Utc::now().timestamp() + 60
     }
 }
 
-/// Where the secrets live.
-///
-/// The app uses the operating system's keyring; the tests use a fake so they
-/// never touch the real one.
 pub trait SecretStore: Send + Sync + std::fmt::Debug {
     fn get(&self, name: &str) -> Result<Option<String>, String>;
     fn set(&self, name: &str, value: &str) -> Result<(), String>;
     fn delete(&self, name: &str) -> Result<(), String>;
 
-    /// Called once the app knows where its data directory is — a store with a
-    /// file fallback needs it.
     fn set_fallback_dir(&self, _dir: std::path::PathBuf) {}
 }
 
-/// The OS keyring — libsecret on Linux, the keychain on macOS, DPAPI on
-/// Windows.
 #[derive(Debug)]
 pub struct KeyringStore {
     service: String,
@@ -134,7 +108,6 @@ impl SecretStore for KeyringStore {
     }
 }
 
-/// A secret store that keeps everything in memory — used by the tests.
 #[derive(Debug, Default)]
 pub struct MemoryStore {
     values: std::sync::Mutex<std::collections::HashMap<String, String>>,
@@ -159,10 +132,6 @@ impl SecretStore for MemoryStore {
     }
 }
 
-/// A file store for systems without a keyring.
-///
-/// The secrets end up in the app-data directory, readable by the user only —
-/// `0600` for the files, `0700` for the directory.
 #[derive(Debug, Clone)]
 pub struct FileStore {
     dir: std::path::PathBuf,
@@ -210,8 +179,6 @@ impl SecretStore for FileStore {
     }
 }
 
-/// The keyring — with a file fallback for systems that have no keyring
-/// (a headless Linux without libsecret, for example).
 #[derive(Debug)]
 pub struct SafeStore {
     keyring: KeyringStore,
@@ -226,7 +193,6 @@ impl SafeStore {
         }
     }
 
-    /// The file store to fall back to, if there is one.
     fn fallback(&self) -> Option<FileStore> {
         self.fallback
             .lock()
@@ -272,7 +238,6 @@ impl SecretStore for SafeStore {
     }
 }
 
-/// Restricts a path to the given mode (a no-op outside unix).
 #[cfg(unix)]
 fn set_permissions(path: &std::path::Path, mode: u32) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
@@ -281,13 +246,11 @@ fn set_permissions(path: &std::path::Path, mode: u32) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Restricts a path to the given mode (a no-op outside unix).
 #[cfg(not(unix))]
 fn set_permissions(_path: &std::path::Path, _mode: u32) -> Result<(), String> {
     Ok(())
 }
 
-/// The URL the browser is sent to.
 pub fn consent_url(client_id: &str, redirect_uri: &str, state: &str) -> String {
     format!(
         "{AUTH_URL}?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent&state={}",
@@ -298,15 +261,10 @@ pub fn consent_url(client_id: &str, redirect_uri: &str, state: &str) -> String {
     )
 }
 
-/// Waits for the browser to come back with the authorization code.
-///
-/// This is the loopback half of the "installed app" flow: the browser sends
-/// the code to `http://127.0.0.1:<port>/?code=…&state=…`.
 pub fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<String, String> {
     let mut stream = accept_with_timeout(&listener, Duration::from_secs(300))?;
     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
 
-    // The request usually arrives in one piece, but it does not have to.
     let mut request = String::new();
     let mut buffer = [0u8; 4096];
     while !request.contains('\n') {
@@ -326,8 +284,6 @@ pub fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<Stri
 
     for pair in query.split('&') {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-        // The request line ends with the HTTP version — it is not part of the
-        // value.
         let value = value.split([' ', '\r']).next().unwrap_or("");
         let value = percent_decode(value);
         match key {
@@ -363,7 +319,6 @@ pub fn wait_for_code(listener: TcpListener, expected_state: &str) -> Result<Stri
     Ok(code)
 }
 
-/// Waits for the browser to connect, but not forever.
 fn accept_with_timeout(
     listener: &TcpListener,
     timeout: Duration,
@@ -390,7 +345,6 @@ fn accept_with_timeout(
     }
 }
 
-/// Exchanges an authorization code for tokens.
 pub async fn exchange_code(
     client: &OAuthClient,
     code: &str,
@@ -414,7 +368,6 @@ pub async fn exchange_code(
     read_tokens(response).await
 }
 
-/// Asks Google for a fresh access token.
 pub async fn refresh(client: &OAuthClient, refresh_token: &str) -> Result<Tokens, String> {
     let form = [
         ("grant_type", "refresh_token".to_string()),
@@ -433,7 +386,6 @@ pub async fn refresh(client: &OAuthClient, refresh_token: &str) -> Result<Tokens
     read_tokens(response).await
 }
 
-/// Gives the access back to Google — the account can then revoke it.
 pub async fn revoke(token: &str) -> Result<(), String> {
     let response = reqwest::Client::new()
         .post(REVOKE_URL)
@@ -449,15 +401,11 @@ pub async fn revoke(token: &str) -> Result<(), String> {
     }
 }
 
-/// The email of the connected account.
 pub async fn account_email(access_token: &str) -> Result<String, String> {
-    // The token endpoint knows the email, but only when the email scope was
-    // granted.
     if let Some(email) = tokeninfo_email(access_token).await? {
         return Ok(email);
     }
 
-    // Otherwise the userinfo endpoint answers it.
     let response = reqwest::Client::new()
         .get(USERINFO_URL)
         .bearer_auth(access_token)
@@ -478,7 +426,6 @@ pub async fn account_email(access_token: &str) -> Result<String, String> {
         .ok_or_else(|| "Google did not report an account.".to_string())
 }
 
-/// The email in the token info — `None` when the email scope was not granted.
 async fn tokeninfo_email(access_token: &str) -> Result<Option<String>, String> {
     let response = reqwest::Client::new()
         .get(TOKENINFO_URL)
@@ -500,7 +447,6 @@ async fn tokeninfo_email(access_token: &str) -> Result<Option<String>, String> {
         .map(str::to_string))
 }
 
-/// Reads the token endpoint's answer.
 async fn read_tokens(response: reqwest::Response) -> Result<Tokens, String> {
     let status = response.status();
     let body = response.text().await.map_err(|e| e.to_string())?;
@@ -531,7 +477,6 @@ async fn read_tokens(response: reqwest::Response) -> Result<Tokens, String> {
     })
 }
 
-/// Turns Google's error answer into something a person can read.
 fn describe_error(body: &str) -> String {
     let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or_default();
 
@@ -549,7 +494,6 @@ fn describe_error(body: &str) -> String {
             other => format!("Google refused the request: {other}"),
         };
     }
-    // The API answers with a nested error object.
     if let Some(message) = parsed
         .get("error")
         .and_then(|error| error.get("message"))
@@ -564,7 +508,6 @@ fn describe_error(body: &str) -> String {
     }
 }
 
-/// Percent-encodes everything that is not unreserved (RFC 3986).
 fn percent_encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
@@ -578,7 +521,6 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
-/// The inverse of `percent_encode`, plus `+` for spaces.
 fn percent_decode(value: &str) -> String {
     let bytes = value.as_bytes();
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
@@ -613,7 +555,6 @@ fn percent_decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Escapes the little HTML the loopback page shows.
 fn html_escape(value: &str) -> String {
     value
         .replace('&', "&amp;")
@@ -639,10 +580,7 @@ mod tests {
         assert!(url.contains("response_type=code"));
         assert!(url.contains("access_type=offline"));
         assert!(url.contains("state=abc-123"));
-        // The scope has to be encoded — it contains a colon and a slash.
         assert!(url.contains("scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar"));
-        // The email scope comes with it — that is how the app knows which
-        // account is connected.
         assert!(url.contains(
             "scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcalendar%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email"
         ));
@@ -678,8 +616,6 @@ mod tests {
         assert_eq!(store.get("token").unwrap(), None);
     }
 
-    /// The fallback for systems without a keyring keeps the secrets to
-    /// themselves.
     #[test]
     fn the_file_store_keeps_the_secrets_to_itself() {
         let dir = std::env::temp_dir().join(format!("checkd-test-secrets-{}", std::process::id()));
@@ -705,7 +641,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Whether the system has a keyring or not, the value comes back.
     #[test]
     fn the_safe_store_works_with_or_without_a_keyring() {
         let dir = std::env::temp_dir().join(format!("checkd-test-safe-{}", std::process::id()));
@@ -723,8 +658,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The browser answers on the loopback listener — that is where the
-    /// authorization code comes from.
     #[test]
     fn the_loopback_listener_reads_the_code() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
@@ -742,14 +675,12 @@ mod tests {
         let code = wait_for_code(listener, "xyz").expect("the code comes back");
         assert_eq!(code, "4/0Abc");
 
-        // The browser gets a page back.
         let mut page = String::new();
         let mut stream = answer.join().expect("thread");
         let _ = stream.read_to_string(&mut page);
         assert!(page.contains("checkd is connected"));
     }
 
-    /// A code that comes with the wrong state is refused.
     #[test]
     fn the_loopback_listener_checks_the_state() {        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("addr").port();
@@ -766,7 +697,6 @@ mod tests {
         assert!(error.contains("could not be verified"), "unexpected: {error}");
     }
 
-    /// Google reports the problem in the redirect instead of a code.
     #[test]
     fn a_refused_sign_in_is_passed_on() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");

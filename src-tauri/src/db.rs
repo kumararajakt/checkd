@@ -1,8 +1,3 @@
-//! SQLite persistence for lists and tasks.
-//!
-//! The models here mirror `src/types.ts` — keep both sides in sync when the
-//! data model changes.
-
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
@@ -14,36 +9,23 @@ use tauri::{AppHandle, Manager};
 use crate::repeat;
 use crate::sync::{SyncEntity, SyncLink};
 
-/// One task, stored in the `tasks` table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Task {
     pub id: String,
     pub title: String,
     pub description: String,
-    /// `YYYY-MM-DD` or null.
     pub due_date: Option<String>,
-    /// `HH:MM` (24h) or null.
     pub due_time: Option<String>,
     pub repeat: Option<Repeat>,
-    /// Whether the active occurrence is done.
     pub completed: bool,
-    /// Date of the active occurrence (repeating tasks only).
     pub next_occurrence: Option<String>,
-    /// Index of the active occurrence within the series.
     pub occurrence_index: i64,
-    /// Key of the notification already sent for the active occurrence.
-    /// Internal — never sent to the frontend.
     #[serde(skip_serializing, default)]
     pub notified_key: Option<String>,
 }
 
 impl Task {
-    /// The moment this task is due, plus a key identifying that occurrence.
-    ///
-    /// Repeating tasks are due at their active occurrence; one-off tasks at
-    /// their due date. Tasks without a due time are due at 09:00 on the due
-    /// day.
     pub fn due_moment(&self) -> Option<(NaiveDateTime, String)> {
         if self.completed {
             return None;
@@ -70,7 +52,6 @@ impl Task {
     }
 }
 
-/// One list, with its tasks nested in display order.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct List {
@@ -80,21 +61,18 @@ pub struct List {
     pub tasks: Vec<Task>,
 }
 
-/// Everything the UI needs to render the app.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppData {
     pub lists: Vec<List>,
 }
 
-/// A task together with the list it belongs to (used by the notifier).
 #[derive(Debug, Clone)]
 pub struct TaskWithList {
     pub task: Task,
     pub list_name: String,
 }
 
-/// A list row with its position and `updated_at` timestamp (used by the sync engine).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncList {
@@ -105,7 +83,6 @@ pub struct SyncList {
     pub updated_at: i64,
 }
 
-/// A task row with its `list_id`, `position`, and `updated_at` timestamp (used by the sync engine).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncTask {
@@ -142,15 +119,10 @@ pub enum RepeatEnd {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MonthWeek {
-    /// 1..=4 — the nth weekday of the month.
     Index(i64),
-    /// The last such weekday of the month.
     Last,
 }
 
-/// The TS model stores the week as a number or the string `"last"`, so this
-/// needs a hand-written serde impl (an untagged unit variant would serialize
-/// as `null`).
 impl Serialize for MonthWeek {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
@@ -179,11 +151,8 @@ impl<'de> Deserialize<'de> for MonthWeek {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum MonthRepeat {
-    /// A day of the month, 1..=31.
     Day { day: i64 },
-    /// The last day of the month.
     LastDay,
-    /// The nth (or last) weekday of the month.
     Weekday { weekday: i64, week: MonthWeek },
 }
 
@@ -192,31 +161,24 @@ pub enum MonthRepeat {
 pub struct Repeat {
     pub unit: RepeatUnit,
     pub interval: i64,
-    /// First occurrence, `YYYY-MM-DD`.
     pub start: String,
-    /// Time of day for occurrences, `HH:MM` (24h), or null.
     pub time: Option<String>,
-    /// Weekdays for weekly rules (0 = Sunday … 6 = Saturday).
     pub weekdays: Vec<i64>,
-    /// Anchor within the month; only used by monthly rules.
     pub month_repeat: Option<MonthRepeat>,
     pub end: RepeatEnd,
 }
 
-/// Handle to the app's SQLite database, shared by every command.
 pub struct Db {
     conn: Mutex<Connection>,
 }
 
 impl Db {
-    /// Opens (creating if needed) the database in the platform app-data dir.
     pub fn open(app: &AppHandle) -> Result<Self, String> {
         let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         Self::open_path(&dir.join("checkd.db"))
     }
 
-    /// Opens the database at an explicit path.
     pub fn open_path(path: &Path) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -237,12 +199,9 @@ impl Db {
     }
 
     fn conn(&self) -> MutexGuard<'_, Connection> {
-        // A poisoned lock means a previous command panicked; the data is still
-        // consistent (each statement is its own transaction), so recover.
         self.conn.lock().unwrap_or_else(|err| err.into_inner())
     }
 
-    /// Reads the whole database: lists in order, each with its tasks.
     pub fn load(&self) -> Result<AppData, String> {
         let conn = self.conn();
 
@@ -274,7 +233,6 @@ impl Db {
         Ok(AppData { lists })
     }
 
-    /// All tasks with their list name — the notifier's work list.
     pub fn tasks_for_notifications(&self) -> Result<Vec<TaskWithList>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -310,15 +268,6 @@ impl Db {
         rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
     }
 
-    /// Advances repeating tasks whose occurrence was missed.
-    ///
-    /// The pointer normally moves on when an occurrence is completed. When it
-    /// is not, the series would stall — so once the *next* occurrence is due,
-    /// the missed one is dropped and the pointer moves on. That keeps the
-    /// reminders coming (like a habit tracker) instead of going silent after
-    /// a single missed day.
-    ///
-    /// Returns whether any task moved on.
     pub fn roll_forward_missed(&self, now: NaiveDateTime) -> Result<bool, String> {
         let tasks = self.tasks_for_notifications()?;
         let mut changed = false;
@@ -336,7 +285,6 @@ impl Db {
                 continue;
             };
 
-            // Walk forward while the following occurrence is already due.
             let mut occurrence = current;
             let mut index = task.occurrence_index;
             while let Some(next) = repeat::next_after(rule, occurrence) {
@@ -353,7 +301,6 @@ impl Db {
             changed = true;
 
             if series_ended(rule, index) {
-                // The series is over: the task becomes a plain completed task.
                 self.conn()
                     .execute(
                         "UPDATE tasks
@@ -381,11 +328,6 @@ impl Db {
         Ok(changed)
     }
 
-    /// Forgets which reminders were already sent.
-    ///
-    /// Called once when the app starts: every launch is a fresh reminder
-    /// session, so whatever is overdue is brought up again — even when it was
-    /// already reminded about in an earlier session.
     pub fn reset_notifications(&self) -> Result<(), String> {
         self.conn()
             .execute("UPDATE tasks SET notified_key = NULL", [])
@@ -393,7 +335,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// Records that the notification for an occurrence was sent.
     pub fn mark_notified(&self, id: &str, key: &str) -> Result<(), String> {
         self.conn()
             .execute(
@@ -404,7 +345,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// Reads a single task.
     pub fn get_task(&self, id: &str) -> Result<Option<Task>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -466,8 +406,6 @@ impl Db {
     }
 
     pub fn delete_list(&self, id: &str) -> Result<(), String> {
-        // The tasks go with the list (ON DELETE CASCADE), so they need a
-        // tombstone of their own — a pull must not bring them back.
         let task_ids = self.task_ids_of(id)?;
 
         self.conn()
@@ -552,7 +490,6 @@ impl Db {
         self.touch(SyncEntity::Task, id)
     }
 
-    /// Sets (or clears) the repeat rule and re-anchors the active occurrence.
     pub fn set_task_repeat(&self, id: &str, repeat: Option<&Repeat>) -> Result<Task, String> {
         let (encoded, next_occurrence) = match repeat {
             Some(rule) => {
@@ -579,11 +516,6 @@ impl Db {
         self.get_task(id)?.ok_or_else(|| format!("no task with id {id}"))
     }
 
-    /// Marks a task done (or not done).
-    ///
-    /// Completing the active occurrence of a repeating task advances the
-    /// series to its next occurrence; when the series has run out, the rule is
-    /// cleared and the task stays completed.
     pub fn set_task_completed(&self, id: &str, completed: bool) -> Result<Task, String> {
         let Some(mut task) = self.get_task(id)? else {
             return Err(format!("no task with id {id}"));
@@ -625,7 +557,6 @@ impl Db {
         };
 
         if next.is_none() {
-            // The series is over: the task becomes a plain completed task.
             self.conn()
                 .execute(
                     "UPDATE tasks
@@ -652,12 +583,6 @@ impl Db {
         self.get_task(id)?.ok_or_else(|| format!("no task with id {id}"))
     }
 
-    /// Decides whether the current occurrence still deserves a reminder.
-    ///
-    /// An occurrence whose moment has already passed when the user sets it is
-    /// marked as handled — the user just saw it, so no notification is sent.
-    /// Everything else stays open, so the scheduler reminds the user when the
-    /// moment arrives (or once on the next launch, if the app was closed).
     fn refresh_notification_state(&self, id: &str) -> Result<(), String> {
         let key = match self.get_task(id)? {
             Some(task) => match task.due_moment() {
@@ -710,15 +635,9 @@ impl Db {
             .map(|_| ())
             .map_err(|e| e.to_string())?;
 
-        // The row is gone, but the remote object still has to be deleted —
-        // the tombstone in `sync_links` keeps that job (and stops a pull
-        // from bringing the task back).
         self.mark_deleted(SyncEntity::Task, id, parent_id.as_deref())
     }
 
-    // --- sync bookkeeping ---------------------------------------------------
-
-    /// The list a task belongs to.
     fn task_list_id(&self, id: &str) -> Result<Option<String>, String> {
         self.conn()
             .query_row(
@@ -733,7 +652,6 @@ impl Db {
             })
     }
 
-    /// Reads a list row as a `SyncList`.
     pub fn sync_list(&self, id: &str) -> Result<Option<SyncList>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -757,7 +675,6 @@ impl Db {
         }
     }
 
-    /// Reads a task row as a `SyncTask`.
     pub fn sync_task(&self, id: &str) -> Result<Option<SyncTask>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -793,7 +710,6 @@ impl Db {
         }
     }
 
-    /// Upserts a list pulled from Google and marks its sync link clean.
     pub fn apply_remote_list(&self, list: &SyncList, remote_id: &str) -> Result<(), String> {
         let now = now_ms();
         self.conn()
@@ -826,7 +742,6 @@ impl Db {
         Ok(())
     }
 
-    /// Upserts a task pulled from Google and marks its sync link clean.
     pub fn apply_remote_task(&self, task: &SyncTask, remote_id: &str) -> Result<(), String> {
         let now = now_ms();
         let encoded = match &task.repeat {
@@ -888,7 +803,6 @@ impl Db {
         Ok(())
     }
 
-    /// Removes a local list that was deleted remotely (without creating a dirty tombstone).
     pub fn remove_remote_deleted_list(&self, id: &str) -> Result<(), String> {
         let task_ids = self.task_ids_of(id)?;
         self.conn()
@@ -901,7 +815,6 @@ impl Db {
         Ok(())
     }
 
-    /// Removes a local task that was deleted remotely (without creating a dirty tombstone).
     pub fn remove_remote_deleted_task(&self, id: &str) -> Result<(), String> {
         self.conn()
             .execute("DELETE FROM tasks WHERE id = ?1", params![id])
@@ -910,7 +823,6 @@ impl Db {
         Ok(())
     }
 
-    /// All local list ids.
     pub fn all_list_ids(&self) -> Result<Vec<String>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -924,7 +836,6 @@ impl Db {
         Ok(rows)
     }
 
-    /// The ids of the tasks in a list.
     pub fn task_ids_of(&self, list_id: &str) -> Result<Vec<String>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -938,7 +849,6 @@ impl Db {
         Ok(rows)
     }
 
-    /// Records that a local entity changed and still has to be pushed.
     fn mark_dirty(
         &self,
         entity: SyncEntity,
@@ -961,10 +871,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// Records that an entity was deleted locally.
-    ///
-    /// The tombstone keeps the remote id, so the remote object can be
-    /// deleted, and keeps the pull from resurrecting the entity.
     fn mark_deleted(
         &self,
         entity: SyncEntity,
@@ -987,8 +893,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// Stamps a local change: the entity's `updated_at` moves forward and the
-    /// outbox learns that the change still has to be pushed.
     fn touch(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
         let now = now_ms();
         let (table, parent_id) = match entity {
@@ -1007,10 +911,6 @@ impl Db {
         self.mark_dirty(entity, id, parent_id.as_deref())
     }
 
-    /// The outbox: every entity with local changes that are not pushed yet.
-    ///
-    /// Lists come first — a task cannot be pushed before the calendar it
-    /// belongs to exists.
     pub fn pending_links(&self) -> Result<Vec<SyncLink>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -1059,7 +959,6 @@ impl Db {
         Ok(links)
     }
 
-    /// How many local changes are waiting to be pushed.
     pub fn pending_count(&self) -> Result<i64, String> {
         self.conn()
             .query_row("SELECT COUNT(*) FROM sync_links WHERE dirty = 1", [], |row| {
@@ -1068,7 +967,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// The outbox row of one entity, if there is one.
     pub fn link(&self, entity: SyncEntity, id: &str) -> Result<Option<SyncLink>, String> {
         let conn = self.conn();
         let mut stmt = conn
@@ -1112,7 +1010,6 @@ impl Db {
         }
     }
 
-    /// Finds a sync link by its remote Google id.
     pub fn link_by_remote_id(
         &self,
         entity: SyncEntity,
@@ -1160,7 +1057,6 @@ impl Db {
         }
     }
 
-    /// Remembers which Google object a local entity belongs to.
     pub fn set_remote_id(&self, entity: SyncEntity, id: &str, remote_id: &str) -> Result<(), String> {
         self.conn()
             .execute(
@@ -1173,7 +1069,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// Marks an entity as pushed.
     pub fn mark_synced(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
         self.conn()
             .execute(
@@ -1185,7 +1080,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// Drops an outbox row — used once a remote delete is confirmed.
     pub fn drop_link(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
         self.conn()
             .execute(
@@ -1196,7 +1090,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// When a local entity was last changed (unix milliseconds).
     pub fn entity_updated_at(&self, entity: SyncEntity, id: &str) -> Result<Option<i64>, String> {
         let table = match entity {
             SyncEntity::List => "lists",
@@ -1215,7 +1108,6 @@ impl Db {
             })
     }
 
-    /// Reads a value from the small connection-state store.
     pub fn sync_state(&self, key: &str) -> Result<Option<String>, String> {
         self.conn()
             .query_row("SELECT value FROM sync_state WHERE key = ?1", params![key], |row| {
@@ -1228,7 +1120,6 @@ impl Db {
             })
     }
 
-    /// Writes a value into the connection-state store.
     pub fn set_sync_state(&self, key: &str, value: &str) -> Result<(), String> {
         self.conn()
             .execute(
@@ -1240,7 +1131,6 @@ impl Db {
             .map_err(|e| e.to_string())
     }
 
-    /// Removes a value from the connection-state store.
     pub fn clear_sync_state(&self, key: &str) -> Result<(), String> {
         self.conn()
             .execute("DELETE FROM sync_state WHERE key = ?1", params![key])
@@ -1249,19 +1139,16 @@ impl Db {
     }
 }
 
-/// Parses a `HH:MM` time; tasks without one are due at 09:00.
 fn parse_time(value: Option<&str>) -> NaiveTime {
     value
         .and_then(|value| NaiveTime::parse_from_str(value, "%H:%M").ok())
         .unwrap_or_else(|| NaiveTime::from_hms_opt(9, 0, 0).expect("valid time"))
 }
 
-/// The moment a repeat occurrence is due.
 fn occurrence_moment(date: NaiveDate, rule: &Repeat) -> NaiveDateTime {
     date.and_time(parse_time(rule.time.as_deref()))
 }
 
-/// Whether the series has run out of occurrences at `index`.
 fn series_ended(rule: &Repeat, index: i64) -> bool {
     matches!(rule.end, RepeatEnd::After { count } if index >= count)
 }
@@ -1320,7 +1207,6 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
 
          CREATE INDEX IF NOT EXISTS idx_tasks_list_id ON tasks(list_id);
 
-         -- The outbox, the id mapping and the tombstone log in one table.
          CREATE TABLE IF NOT EXISTS sync_links (
              entity_type TEXT    NOT NULL,
              entity_id   TEXT    NOT NULL,
@@ -1333,7 +1219,6 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
              PRIMARY KEY (entity_type, entity_id)
          );
 
-         -- Small key/value store for the connection state.
          CREATE TABLE IF NOT EXISTS sync_state (
              key   TEXT PRIMARY KEY,
              value TEXT NOT NULL
@@ -1341,7 +1226,6 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
 
-    // Columns added after the first release — ALTER TABLE for existing files.
     ensure_columns(
         conn,
         "tasks",
@@ -1356,10 +1240,6 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
     ensure_columns(conn, "lists", &[("updated_at", "INTEGER NOT NULL DEFAULT 0")])?;
     ensure_columns(conn, "sync_links", &[("parent_id", "TEXT")])?;
 
-    // Everything that already existed when the sync was introduced has to be
-    // queued once — otherwise the old lists and tasks would never reach
-    // Google. `INSERT OR IGNORE` keeps the rows that are already there, so
-    // this only ever adds what is missing.
     conn.execute_batch(
         "INSERT OR IGNORE INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
          SELECT 'list', id, 1, 0, updated_at FROM lists;
@@ -1376,7 +1256,6 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-/// Adds the given columns to `table` if they are not there yet.
 fn ensure_columns(
     conn: &Connection,
     table: &str,
@@ -1405,7 +1284,6 @@ fn ensure_columns(
     Ok(())
 }
 
-/// The current time in unix milliseconds — the stamp of a local change.
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -1421,7 +1299,6 @@ mod tests {
         Db::open_path(&path).expect("open temp db")
     }
 
-    /// A local date and time, e.g. 2030-01-02 09:00.
     fn moment(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> NaiveDateTime {
         NaiveDate::from_ymd_opt(year, month, day)
             .unwrap()
@@ -1458,7 +1335,6 @@ mod tests {
         assert_eq!(rule.weekdays, vec![1, 3]);
         assert!(matches!(rule.end, RepeatEnd::After { count: 5 }));
 
-        // Serializing must give back exactly what the TS model produced.
         let back = serde_json::to_value(&rule).unwrap();
         assert_eq!(back, serde_json::from_str::<serde_json::Value>(json).unwrap());
     }
@@ -1510,7 +1386,6 @@ mod tests {
         );
         assert_eq!(data.lists[0].tasks[0].due_time.as_deref(), Some("18:00"));
 
-        // Deleting a list takes its tasks with it.
         db.delete_list("l1").unwrap();
         assert!(db.load().unwrap().lists.is_empty());
     }
@@ -1568,7 +1443,6 @@ mod tests {
         let path = std::env::temp_dir().join("checkd-test-migration.db");
         let _ = std::fs::remove_file(&path);
 
-        // A database from before tasks could be completed.
         {
             let conn = Connection::open(&path).unwrap();
             conn.execute_batch(
@@ -1599,7 +1473,6 @@ mod tests {
             .unwrap();
         }
 
-        // Opening it with the current code migrates it in place.
         let db = Db::open_path(&path).unwrap();
         let data = db.load().unwrap();
         let task = &data.lists[0].tasks[0];
@@ -1609,8 +1482,6 @@ mod tests {
         assert_eq!(task.next_occurrence, None);
         assert_eq!(task.occurrence_index, 0);
 
-        // The old list and task are queued for the sync — they would
-        // otherwise never reach Google.
         let pending = db.pending_links().unwrap();
         assert_eq!(pending.len(), 2);
         assert_eq!(pending[0].entity, SyncEntity::List);
@@ -1625,7 +1496,6 @@ mod tests {
         db.create_list("l1", "List", "#3b82f6").unwrap();
         db.create_task("t1", "l1", "Water plants").unwrap();
 
-        // A rule in the future keeps the test independent of the current date.
         let rule = daily_rule("2030-01-01");
         db.set_task_repeat("t1", Some(&rule)).unwrap();
         assert_eq!(
@@ -1633,7 +1503,6 @@ mod tests {
             Some("2030-01-01")
         );
 
-        // The next occurrence is not due yet — nothing moves.
         let before = moment(2030, 1, 1, 8, 0);
         assert!(!db.roll_forward_missed(before).unwrap());
         assert_eq!(
@@ -1641,8 +1510,6 @@ mod tests {
             Some("2030-01-01")
         );
 
-        // Once it is due, the missed occurrence is dropped and the series
-        // continues — the reminders keep coming.
         let after = moment(2030, 1, 2, 9, 0);
         assert!(db.roll_forward_missed(after).unwrap());
 
@@ -1663,14 +1530,12 @@ mod tests {
         rule.end = RepeatEnd::After { count: 2 };
         db.set_task_repeat("t1", Some(&rule)).unwrap();
 
-        // First missed occurrence — the series has one left.
         db.roll_forward_missed(moment(2030, 1, 2, 9, 0))
             .unwrap();
         let task = db.get_task("t1").unwrap().unwrap();
         assert_eq!(task.next_occurrence.as_deref(), Some("2030-01-02"));
         assert!(task.repeat.is_some());
 
-        // Second one — the series is over.
         db.roll_forward_missed(moment(2030, 1, 3, 9, 0))
             .unwrap();
         let task = db.get_task("t1").unwrap().unwrap();
@@ -1685,7 +1550,6 @@ mod tests {
         db.create_list("l1", "List", "#3b82f6").unwrap();
         db.create_task("t1", "l1", "Milk").unwrap();
 
-        // The reminder for this occurrence went out in an earlier session.
         db.mark_notified("t1", "due:2026-10-21").unwrap();
         let tasks = db.tasks_for_notifications().unwrap();
         assert_eq!(
@@ -1693,14 +1557,10 @@ mod tests {
             Some("due:2026-10-21")
         );
 
-        // Launching the app starts a fresh session — the task is mentioned
-        // again the next time the app is opened.
         db.reset_notifications().unwrap();
         let tasks = db.tasks_for_notifications().unwrap();
         assert_eq!(tasks[0].task.notified_key, None);
     }
-
-    // --- sync bookkeeping ---------------------------------------------------
 
     #[test]
     fn creating_a_list_queues_it_for_the_sync() {
@@ -1747,7 +1607,6 @@ mod tests {
 
         let link = db.link(SyncEntity::List, "l1").unwrap().unwrap();
         assert!(link.dirty);
-        // The remote id is kept — the push updates the same calendar.
         assert_eq!(link.remote_id.as_deref(), Some("cal-1"));
     }
 

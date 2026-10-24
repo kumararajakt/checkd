@@ -3,9 +3,7 @@ import type { Repeat, RepeatUnit } from "../types";
 
 type RepeatModalProps = {
   repeat: Repeat | null;
-  /** Start date to prefill when creating a new rule (usually the task's due date). */
   defaultStart: string;
-  /** Time to prefill when creating a new rule (usually the task's due time). */
   defaultTime: string | null;
   onSave: (repeat: Repeat | null) => void;
   onClose: () => void;
@@ -20,10 +18,8 @@ const UNITS: { value: RepeatUnit; label: string }[] = [
   { value: "year", label: "Year" },
 ];
 
-/** Short weekday labels, index 0 = Sunday (matches Date#getDay()). */
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** Full weekday names, index 0 = Sunday. */
 const WEEKDAY_NAMES = [
   "Sunday",
   "Monday",
@@ -97,7 +93,6 @@ export default function RepeatModal({
       interval: n,
       start: start || defaultStart,
       time: time || null,
-      // Only weekly rules care about weekdays; drop them otherwise.
       weekdays:
         unit === "week" ? [...weekdays].sort((a, b) => a - b) : [],
       monthRepeat:

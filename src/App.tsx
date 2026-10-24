@@ -14,7 +14,6 @@ import { applyTheme, loadSettings, saveSettings, watchSystemTheme } from "./sett
 import type { Settings } from "./settings";
 import type { List, Repeat, Task } from "./types";
 
-/** How often the UI refreshes time-dependent state (overdue colours). */
 const CLOCK_TICK_MS = 30_000;
 
 function App() {
@@ -24,21 +23,17 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  /** Current time — refreshed on a timer so overdue states stay accurate. */
   const [now, setNow] = useState(() => new Date());
 
-  // Load the database on startup.
   useEffect(() => {
     db.load()
       .then((data) => {
         setLists(data.lists);
-        // Reopen the list that was open when the app was last closed.
         const last = loadSettings().lastListId;
         if (!last) return;
         if (data.lists.some((l) => l.id === last)) {
           setSelectedId(last);
         } else {
-          // The list is gone — forget it instead of restoring it forever.
           updateSettings({ lastListId: null });
         }
       })
@@ -54,23 +49,17 @@ function App() {
       .catch(() => {});
   }, []);
 
-  // Keep the clock ticking — without it an overdue task would keep its old
-  // colour until something else re-rendered the list.
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), CLOCK_TICK_MS);
     return () => clearInterval(timer);
   }, []);
 
-  // Desktop notifications have to be allowed (macOS/Windows ask; Linux does
-  // not). The reminders themselves are sent from the Rust side.
   useEffect(() => {
     isPermissionGranted()
       .then((granted) => (granted ? null : requestPermission()))
       .catch(() => {});
   }, []);
 
-  // The scheduler moves repeating tasks on when an occurrence was missed —
-  // reload so the list shows where the series actually stands.
   useEffect(() => {
     const unlisten = listen("data-changed", () => {
       db.load()
@@ -82,8 +71,6 @@ function App() {
     };
   }, []);
 
-  // Writes are optimistic: the UI updates first, then we persist. If a write
-  // fails we resync from the database so the UI never drifts from disk.
   function persist(write: Promise<unknown>): Promise<unknown> {
     return write
       .then(() => {
@@ -101,7 +88,6 @@ function App() {
           const data = await db.load();
           setLists(data.lists);
         } catch {
-          // The banner already explains the problem.
         }
       });
   }
@@ -153,7 +139,6 @@ function App() {
   }
 
   function setTaskDueDate(listId: string, taskId: string, dueDate: string | null) {
-    // Time is only valid alongside a date — drop it when the date goes.
     const dueTime = dueDate ? (findTask(listId, taskId)?.dueTime ?? null) : null;
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, dueDate, dueTime } : t)),
@@ -180,8 +165,6 @@ function App() {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, repeat } : t)),
     );
-    // The database anchors the rule to an occurrence — take the saved task
-    // back so the next occurrence shows up right away.
     persist(
       db.setTaskRepeat(taskId, repeat).then((updated) => {
         updateTasks(listId, (tasks) =>
@@ -195,8 +178,6 @@ function App() {
     updateTasks(listId, (tasks) =>
       tasks.map((t) => (t.id === taskId ? { ...t, completed } : t)),
     );
-    // The database owns the series: completing a repeating task advances it to
-    // its next occurrence, so take the saved task back once it is written.
     persist(
       db.setTaskCompleted(taskId, completed).then((updated) => {
         updateTasks(listId, (tasks) =>
@@ -225,7 +206,6 @@ function App() {
     persist(db.deleteList(id));
   }
 
-  /** Opens a list and remembers it for the next launch. */
   function selectList(id: string) {
     setSelectedId(id);
     updateSettings({ lastListId: id });
@@ -233,7 +213,6 @@ function App() {
 
   const selected = lists.find((l) => l.id === selectedId);
 
-  // Theme: apply the chosen theme, and follow the OS when set to "system".
   useEffect(() => {
     applyTheme(settings.theme);
     if (settings.theme !== "system") return;
@@ -244,7 +223,6 @@ function App() {
     saveSettings(settings);
   }, [settings]);
 
-  // Tell the Rust side whether closing the window should hide to the tray.
   useEffect(() => {
     invoke("set_close_to_tray", { enabled: settings.closeToTray }).catch(() => {});
   }, [settings.closeToTray]);

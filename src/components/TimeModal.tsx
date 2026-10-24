@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
 
 type TimeModalProps = {
-  /** Current due time as `HH:MM` (24h), or null when the task has no time. */
   time: string | null;
-  /** Called with the picked time — null drops the time again. */
   onSave: (time: string | null) => void;
   onClose: () => void;
 };
 
-/** Quick picks offered above the time picker. */
 const PRESETS = [
   { label: "Morning", time: "09:00" },
   { label: "Noon", time: "12:00" },
@@ -17,7 +14,6 @@ const PRESETS = [
   { label: "Night", time: "21:00" },
 ];
 
-/** Tasks without a time of their own count as due at 09:00. */
 const DEFAULT_TIME = "09:00";
 
 export default function TimeModal({ time, onSave, onClose }: TimeModalProps) {

@@ -1,32 +1,15 @@
-//! Occurrence generation for repeat rules.
-//!
-//! A rule produces an infinite (or finite) series of dates. The rules that
-//! matter:
-//!
-//! - **day** — every `interval` days from the start date.
-//! - **week** — every `interval` weeks (ISO weeks, Monday-based), on the
-//!   selected weekdays. An empty weekday list means "the start date's
-//!   weekday".
-//! - **month** — every `interval` months, anchored to a day of the month
-//!   (clamped to the month's length), the last day, or the nth/last weekday.
-//! - **year** — every `interval` years, on the start date's month and day
-//!   (Feb 29 becomes Feb 28 in non-leap years).
-
 use chrono::{Datelike, Duration, NaiveDate, Weekday};
 
 use crate::db::{MonthRepeat, MonthWeek, Repeat, RepeatUnit};
 
-/// Parses a `YYYY-MM-DD` date.
 pub fn parse_date(value: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(value, "%Y-%m-%d").ok()
 }
 
-/// Formats a date as `YYYY-MM-DD`.
 pub fn format_date(date: NaiveDate) -> String {
     date.format("%Y-%m-%d").to_string()
 }
 
-/// 0 = Sunday … 6 = Saturday (the convention used by the TS model).
 fn weekday_index(date: NaiveDate) -> u32 {
     match date.weekday() {
         Weekday::Sun => 0,
@@ -39,17 +22,14 @@ fn weekday_index(date: NaiveDate) -> u32 {
     }
 }
 
-/// The offset of a weekday index inside an ISO week (Monday = 0).
 fn offset_in_week(index: u32) -> i64 {
     ((index + 6) % 7) as i64
 }
 
-/// The Monday of the week containing `date`.
 fn week_start(date: NaiveDate) -> NaiveDate {
     date - Duration::days(offset_in_week(weekday_index(date)) as i64)
 }
 
-/// The number of days in a month.
 fn days_in_month(year: i32, month: u32) -> u32 {
     let (next_year, next_month) = if month == 12 {
         (year + 1, 1)
@@ -61,7 +41,6 @@ fn days_in_month(year: i32, month: u32) -> u32 {
     (next - first).num_days() as u32
 }
 
-/// Adds `delta` months to a year/month pair.
 fn add_months(year: i32, month: u32, delta: i64) -> (i32, u32) {
     let total = year as i64 * 12 + (month as i64 - 1) + delta;
     let year = total.div_euclid(12) as i32;
@@ -69,7 +48,6 @@ fn add_months(year: i32, month: u32, delta: i64) -> (i32, u32) {
     (year, month)
 }
 
-/// The nth occurrence of a weekday in a month, or the last one.
 fn nth_weekday(year: i32, month: u32, weekday: u32, nth: Option<u32>) -> Option<NaiveDate> {
     let length = days_in_month(year, month);
     let mut matches = Vec::new();
@@ -85,7 +63,6 @@ fn nth_weekday(year: i32, month: u32, weekday: u32, nth: Option<u32>) -> Option<
     }
 }
 
-/// The date of one "period" of the rule (a day, a week, a month or a year).
 fn dates_for_period(rule: &Repeat, period: i64) -> Vec<NaiveDate> {
     let Some(start) = parse_date(&rule.start) else {
         return Vec::new();
@@ -153,7 +130,6 @@ fn dates_for_period(rule: &Repeat, period: i64) -> Vec<NaiveDate> {
     }
 }
 
-/// The period indexes that could hold an occurrence near `date`.
 fn candidate_periods(rule: &Repeat, date: NaiveDate) -> Vec<i64> {
     let Some(start) = parse_date(&rule.start) else {
         return Vec::new();
@@ -174,17 +150,11 @@ fn candidate_periods(rule: &Repeat, date: NaiveDate) -> Vec<i64> {
         RepeatUnit::Year => ((date.year() - start.year()) as i64).div_euclid(interval),
     };
 
-    // A period can hold several occurrences (a week with several weekdays), so
-    // look at the neighbouring periods as well. Period 0 is the first one, so
-    // the range never starts before it.
     let low = (estimate - 1).max(0);
     let high = (estimate + 1).max(low);
     (low..=high).collect()
 }
 
-/// The first occurrence on or after `from`.
-///
-/// Occurrences before the rule's start date are never produced.
 pub fn first_at_or_after(rule: &Repeat, from: NaiveDate) -> Option<NaiveDate> {
     let start = parse_date(&rule.start)?;
 
@@ -198,8 +168,6 @@ pub fn first_at_or_after(rule: &Repeat, from: NaiveDate) -> Option<NaiveDate> {
     None
 }
 
-/// The first occurrence strictly after `after`, or `None` when the series has
-/// ended.
 pub fn next_after(rule: &Repeat, after: NaiveDate) -> Option<NaiveDate> {
     let start = parse_date(&rule.start)?;
 
@@ -215,7 +183,6 @@ pub fn next_after(rule: &Repeat, after: NaiveDate) -> Option<NaiveDate> {
         .find(|date| *date > after && *date >= start && within_end(rule, *date))
 }
 
-/// Whether the series has ended by `date` ("never" / "on date" ends).
 fn within_end(rule: &Repeat, date: NaiveDate) -> bool {
     match &rule.end {
         crate::db::RepeatEnd::Never => true,
@@ -264,15 +231,14 @@ mod tests {
 
     #[test]
     fn weekly_rule_without_weekdays_uses_the_start_weekday() {
-        // 2026-10-21 is a Wednesday.
         let rule = rule(RepeatUnit::Week, "2026-10-21", 1);
         assert_eq!(next_after(&rule, date("2026-10-21")), Some(date("2026-10-28")));
     }
 
     #[test]
     fn weekly_rule_with_several_weekdays() {
-        let mut rule = rule(RepeatUnit::Week, "2026-10-19", 1); // Monday
-        rule.weekdays = vec![1, 3, 5]; // Mon, Wed, Fri
+        let mut rule = rule(RepeatUnit::Week, "2026-10-19", 1);
+        rule.weekdays = vec![1, 3, 5];
         assert_eq!(first_at_or_after(&rule, date("2026-10-19")), Some(date("2026-10-19")));
         assert_eq!(next_after(&rule, date("2026-10-19")), Some(date("2026-10-21")));
         assert_eq!(next_after(&rule, date("2026-10-21")), Some(date("2026-10-23")));
@@ -281,7 +247,7 @@ mod tests {
 
     #[test]
     fn weekly_rule_every_two_weeks() {
-        let mut rule = rule(RepeatUnit::Week, "2026-10-19", 2); // Monday
+        let mut rule = rule(RepeatUnit::Week, "2026-10-19", 2);
         rule.weekdays = vec![1];
         assert_eq!(next_after(&rule, date("2026-10-19")), Some(date("2026-11-02")));
         assert_eq!(next_after(&rule, date("2026-11-02")), Some(date("2026-11-16")));
@@ -306,17 +272,15 @@ mod tests {
     fn monthly_rule_nth_and_last_weekday() {
         let mut rule = rule(RepeatUnit::Month, "2026-10-21", 1);
         rule.month_repeat = Some(MonthRepeat::Weekday {
-            weekday: 3, // Wednesday
+            weekday: 3,
             week: MonthWeek::Index(3),
         });
-        // Third Wednesday of October 2026 is the 21st.
         assert_eq!(next_after(&rule, date("2026-10-20")), Some(date("2026-10-21")));
 
         rule.month_repeat = Some(MonthRepeat::Weekday {
             weekday: 3,
             week: MonthWeek::Last,
         });
-        // Last Wednesday of October 2026 is the 28th.
         assert_eq!(next_after(&rule, date("2026-10-21")), Some(date("2026-10-28")));
     }
 
