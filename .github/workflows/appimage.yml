@@ -143,19 +143,8 @@ jobs:
             TAR_NAME=$(basename "$TAR_FILE")
             VERSION="${TAG#v}"
             PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-            cat <<EOF > latest.json
-{
-  "version": "$VERSION",
-  "notes": "checkd release $TAG",
-  "pub_date": "$PUB_DATE",
-  "platforms": {
-    "linux-x86_64": {
-      "signature": "$SIG",
-      "url": "https://github.com/kumararajakt/checkd/releases/download/$TAG/$TAR_NAME"
-    }
-  }
-}
-EOF
+            printf '{\n  "version": "%s",\n  "notes": "checkd release %s",\n  "pub_date": "%s",\n  "platforms": {\n    "linux-x86_64": {\n      "signature": "%s",\n      "url": "https://github.com/kumararajakt/checkd/releases/download/%s/%s"\n    }\n  }\n}\n' \
+              "$VERSION" "$TAG" "$PUB_DATE" "$SIG" "$TAG" "$TAR_NAME" > latest.json
           fi
 
           FILES=(src-tauri/target/release/bundle/appimage/*)
