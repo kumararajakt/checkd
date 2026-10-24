@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { db } from "../db";
 import type { Settings, Theme } from "../settings";
-import type { CredentialsStatus, SyncStatus } from "../types";
+import type { SyncStatus } from "../types";
 
 type SettingsDialogProps = {
   settings: Settings;
@@ -32,19 +32,8 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function sinceLabel(at: number | null): string {
-  if (!at) return "never";
-  const minutes = Math.round((Date.now() - at) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} h ago`;
-  return new Date(at).toLocaleDateString();
-}
-
 function GoogleSyncSection() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
-  const [credentials, setCredentials] = useState<CredentialsStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,13 +42,9 @@ function GoogleSyncSection() {
 
     (async () => {
       try {
-        const [current, stored] = await Promise.all([
-          db.googleStatus(),
-          db.googleCredentialsStatus(),
-        ]);
+        const current = await db.googleStatus();
         if (!alive) return;
         setStatus(current);
-        setCredentials(stored);
       } catch (e) {
         if (alive) setError(messageOf(e));
       }
@@ -98,102 +83,36 @@ function GoogleSyncSection() {
     }
   }
 
-  const configured = credentials?.configured ?? false;
   const connected = status?.connected ?? false;
 
   return (
     <section>
       <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
-        Google Calendar
+        Sync
       </h3>
 
-      <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
-        Sync your lists to Google Calendar. checkd keeps working offline — Google
-        is only a mirror.
-      </p>
-
       <div className="flex flex-col gap-2">
-        <p className="text-xs text-gray-600 dark:text-gray-300">
-          {configured ? (
-            <>
-              Client <span className="font-mono">{credentials?.clientId}</span>{" "}
-              from {credentials?.source}
-              {credentials?.secretHint && (
-                <span className="text-gray-400 dark:text-gray-500">
-                  {" "}
-                  (secret {credentials.secretHint})
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              No Google client found — set{" "}
-              <span className="font-mono">CHECKD_GOOGLE_CLIENT_ID</span> and{" "}
-              <span className="font-mono">CHECKD_GOOGLE_CLIENT_SECRET</span> in
-              the environment
-              {credentials?.envFile && (
-                <>
-                  {" "}
-                  (or in the file{" "}
-                  <span className="font-mono">{credentials.envFile}</span>)
-                </>
-              )}{" "}
-              and start checkd again.
-            </>
-          )}
-        </p>
-
         <div className="flex flex-wrap items-center gap-2">
           {connected ? (
-            <>
-              <button
-                type="button"
-                onClick={() => run(db.googleSyncNow)}
-                disabled={busy}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {busy ? "Syncing…" : "Sync now"}
-              </button>
-              <button
-                type="button"
-                onClick={() => run(db.googleSignOut)}
-                disabled={busy}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
-              >
-                Disconnect
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => run(db.googleSignOut)}
+              disabled={busy}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+            >
+              Sign out
+            </button>
           ) : (
             <button
               type="button"
               onClick={() => run(db.googleSignIn)}
-              disabled={busy || !configured}
-              title={
-                configured
-                  ? undefined
-                  : "checkd needs a Google OAuth client — see the note above."
-              }
+              disabled={busy}
               className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {busy ? "Waiting for Google…" : "Connect"}
+              {busy ? "Waiting for Google…" : "Sign in"}
             </button>
           )}
         </div>
-
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          {connected ? (
-            <>
-              Connected as {status?.account ?? "your Google account"} ·{" "}
-              {status?.pending ?? 0} change
-              {(status?.pending ?? 0) === 1 ? "" : "s"} pending · last synced{" "}
-              {sinceLabel(status?.lastSyncAt ?? null)}
-            </>
-          ) : configured ? (
-            "Sign in to give checkd access to your calendars."
-          ) : (
-            "Until then checkd stays a local-only app."
-          )}
-        </p>
 
         {(error ?? status?.lastError) && (
           <p className="text-xs text-red-600 dark:text-red-400">

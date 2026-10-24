@@ -6,12 +6,16 @@ use crate::sync::auth::OAuthClient;
 pub const CLIENT_ID_VARS: [&str; 2] = ["CHECKD_GOOGLE_CLIENT_ID", "CLIENT_ID"];
 pub const CLIENT_SECRET_VARS: [&str; 2] = ["CHECKD_GOOGLE_CLIENT_SECRET", "CLIENT_SECRET"];
 
+pub const BUILTIN_CLIENT_ID: Option<&str> = option_env!("CHECKD_BUILTIN_CLIENT_ID");
+pub const BUILTIN_CLIENT_SECRET: Option<&str> = option_env!("CHECKD_BUILTIN_CLIENT_SECRET");
+
 pub const ENV_FILE: &str = ".env";
 
 #[derive(Debug, Clone)]
 pub enum ClientSource {
     Environment(String),
     File(PathBuf),
+    Builtin,
 }
 
 impl ClientSource {
@@ -19,6 +23,7 @@ impl ClientSource {
         match self {
             ClientSource::Environment(name) => format!("{name} (environment)"),
             ClientSource::File(path) => path.display().to_string(),
+            ClientSource::Builtin => "built-in".to_string(),
         }
     }
 }
@@ -67,6 +72,15 @@ pub fn resolve_client(dirs: &[PathBuf]) -> Result<Option<ResolvedClient>, String
             client,
             source: ClientSource::File(path),
         }));
+    }
+
+    if let (Some(id), Some(secret)) = (BUILTIN_CLIENT_ID, BUILTIN_CLIENT_SECRET) {
+        if let Ok(client) = OAuthClient::validate(id, secret) {
+            return Ok(Some(ResolvedClient {
+                client,
+                source: ClientSource::Builtin,
+            }));
+        }
     }
 
     Ok(None)
