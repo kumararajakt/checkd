@@ -4,6 +4,8 @@ import {
   enable as enableAutostart,
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
+import { check as checkUpdate } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { db } from "../db";
 import type { Settings, Theme } from "../settings";
 import type { SyncStatus } from "../types";
@@ -139,6 +141,8 @@ export default function SettingsDialog({
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [autostart, setAutostart] = useState(false);
   const [autostartLoading, setAutostartLoading] = useState(true);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -169,6 +173,26 @@ export default function SettingsDialog({
       } catch {
         setAutostart(!enable);
       }
+    }
+  }
+
+  async function handleCheckUpdate() {
+    setCheckingUpdate(true);
+    setUpdateStatus(null);
+    try {
+      const update = await checkUpdate();
+      if (update) {
+        setUpdateStatus(`Downloading ${update.version}…`);
+        await update.downloadAndInstall();
+        setUpdateStatus(`Restarting to apply ${update.version}…`);
+        await relaunch();
+      } else {
+        setUpdateStatus("checkd is up to date.");
+      }
+    } catch (e) {
+      setUpdateStatus(messageOf(e));
+    } finally {
+      setCheckingUpdate(false);
     }
   }
 
@@ -316,6 +340,27 @@ export default function SettingsDialog({
               {exportStatus && (
                 <span className="min-w-0 truncate text-xs text-gray-500 dark:text-gray-400">
                   {exportStatus}
+                </span>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+              Updates
+            </h3>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleCheckUpdate}
+                disabled={checkingUpdate}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800"
+              >
+                {checkingUpdate ? "Checking…" : "Check for updates"}
+              </button>
+              {updateStatus && (
+                <span className="min-w-0 truncate text-xs text-gray-500 dark:text-gray-400">
+                  {updateStatus}
                 </span>
               )}
             </div>
