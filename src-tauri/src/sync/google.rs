@@ -115,22 +115,36 @@ impl GoogleClient for GoogleApi {
         access_token: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteCalendar>, String>> {
         Box::pin(async move {
-            #[derive(Deserialize)]
-            struct Answer {
-                #[serde(default)]
-                items: Vec<RemoteCalendar>,
+            let mut all_items: Vec<RemoteCalendar> = Vec::new();
+            let mut page_token: Option<String> = None;
+
+            loop {
+                #[derive(Deserialize)]
+                struct Answer {
+                    #[serde(default)]
+                    items: Vec<RemoteCalendar>,
+                    #[serde(rename = "nextPageToken")]
+                    next_page_token: Option<String>,
+                }
+
+                let mut url = format!(
+                    "{}/users/me/calendarList?fields=items(id,summary,location,hidden),nextPageToken&showHidden=true",
+                    self.base
+                );
+                if let Some(ref token) = page_token {
+                    url.push_str("&pageToken=");
+                    url.push_str(&urlencode(token));
+                }
+                let answer: Answer = self.get_json(access_token, &url).await?;
+                all_items.extend(answer.items);
+
+                match answer.next_page_token {
+                    Some(token) => page_token = Some(token),
+                    None => break,
+                }
             }
 
-            let url = format!(
-                "{}/users/me/calendarList?fields=items(id,summary,location,hidden)",
-                self.base
-            );
-            let answer: Answer = self.get_json(access_token, &url).await?;
-
-            // Only the calendars of this app — the namespace keeps checkd and
-            // adventure_list apart.
-            Ok(answer
-                .items
+            Ok(all_items
                 .into_iter()
                 .filter(|calendar| calendar.location.as_deref() == Some(NAMESPACE))
                 .collect())
@@ -143,19 +157,36 @@ impl GoogleClient for GoogleApi {
         calendar_id: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteEvent>, String>> {
         Box::pin(async move {
-            #[derive(Deserialize)]
-            struct Answer {
-                #[serde(default)]
-                items: Vec<RemoteEvent>,
-            }
+            let mut all_items: Vec<RemoteEvent> = Vec::new();
+            let mut page_token: Option<String> = None;
 
-            let url = format!(
-                "{}/calendars/{}/events?fields=items(id,iCalUID,summary,description,status,updated)&maxResults=250&singleEvents=false",
-                self.base,
-                urlencode(calendar_id)
-            );
-            let answer: Answer = self.get_json(access_token, &url).await?;
-            Ok(answer.items)
+            loop {
+                #[derive(Deserialize)]
+                struct Answer {
+                    #[serde(default)]
+                    items: Vec<RemoteEvent>,
+                    #[serde(rename = "nextPageToken")]
+                    next_page_token: Option<String>,
+                }
+
+                let mut url = format!(
+                    "{}/calendars/{}/events?fields=items(id,iCalUID,summary,description,status,updated),nextPageToken&maxResults=250&singleEvents=false",
+                    self.base,
+                    urlencode(calendar_id)
+                );
+                if let Some(ref token) = page_token {
+                    url.push_str("&pageToken=");
+                    url.push_str(&urlencode(token));
+                }
+                let answer: Answer = self.get_json(access_token, &url).await?;
+                all_items.extend(answer.items);
+
+                match answer.next_page_token {
+                    Some(token) => page_token = Some(token),
+                    None => break,
+                }
+            }
+            Ok(all_items)
         })
     }
 }
