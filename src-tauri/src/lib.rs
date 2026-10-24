@@ -178,9 +178,14 @@ pub fn run() {
     let mut b = builder::<tauri::Wry>(None, SyncManager::new());
     #[cfg(desktop)]
     {
-        b = b.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main_window(app);
-        }));
+        b = b
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                show_main_window(app);
+            }))
+            .plugin(tauri_plugin_autostart::init(
+                tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+                None,
+            ));
     }
     b.setup(|app| {
             app.manage(Db::open(app.handle())?);

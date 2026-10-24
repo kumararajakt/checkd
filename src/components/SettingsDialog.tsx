@@ -1,4 +1,9 @@
 import { useEffect, useState } from "react";
+import {
+  disable as disableAutostart,
+  enable as enableAutostart,
+  isEnabled as isAutostartEnabled,
+} from "@tauri-apps/plugin-autostart";
 import { db } from "../db";
 import type { Settings, Theme } from "../settings";
 import type { SyncStatus } from "../types";
@@ -132,6 +137,40 @@ export default function SettingsDialog({
 }: SettingsDialogProps) {
   const [exporting, setExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
+  const [autostart, setAutostart] = useState(false);
+  const [autostartLoading, setAutostartLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    isAutostartEnabled()
+      .then((enabled) => {
+        if (alive) setAutostart(enabled);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setAutostartLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function handleAutostartChange(enable: boolean) {
+    setAutostart(enable);
+    try {
+      if (enable) {
+        await enableAutostart();
+      } else {
+        await disableAutostart();
+      }
+    } catch {
+      try {
+        setAutostart(await isAutostartEnabled());
+      } catch {
+        setAutostart(!enable);
+      }
+    }
+  }
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -235,6 +274,27 @@ export default function SettingsDialog({
                 Close to tray
                 <span className="block text-xs text-gray-500 dark:text-gray-400">
                   Keep checkd running in the system tray when the window is closed.
+                </span>
+              </span>
+            </label>
+          </section>
+
+          <section>
+            <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+              Startup
+            </h3>
+            <label className="flex items-start gap-3 text-sm text-gray-700 dark:text-gray-200">
+              <input
+                type="checkbox"
+                checked={autostart}
+                disabled={autostartLoading}
+                onChange={(e) => handleAutostartChange(e.currentTarget.checked)}
+                className="mt-0.5 size-4 accent-blue-600 disabled:opacity-50"
+              />
+              <span>
+                Autostart
+                <span className="block text-xs text-gray-500 dark:text-gray-400">
+                  Start checkd automatically on system startup.
                 </span>
               </span>
             </label>
