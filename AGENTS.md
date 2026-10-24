@@ -22,7 +22,7 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 - `src-tauri/src/db.rs` — SQLite layer: schema, models (mirror `src/types.ts`), and all CRUD.
 - `src-tauri/src/repeat.rs` — occurrence generator for repeat rules (pure functions over `chrono` dates).
 - `src-tauri/src/notify.rs` — the reminder scheduler: a background thread that fires desktop notifications.
-- `src-tauri/src/sync/` — the Google Calendar sync: `mod.rs` (the `SyncManager`: the credentials, the tokens, the status), `auth.rs` (the loopback OAuth flow + the secret stores), `credentials.rs` (where the OAuth client comes from: the env / a `.env` file), `google.rs` (the Calendar REST client behind a `GoogleClient` trait). The push/pull engine is not implemented yet; the design lives in `docs/google-calendar-sync-design.md`.
+- `src-tauri/src/sync/` — the Google Calendar sync: `mod.rs` (the `SyncManager`: credentials, tokens, status, and two-way pull/push engine), `auth.rs` (the loopback OAuth flow + the secret stores), `credentials.rs` (where the OAuth client comes from: the env / a `.env` file), `google.rs` (the Calendar REST client behind a `GoogleClient` trait), `payload.rs` (list/task ↔ Calendar/Event JSON mapping), and `merge.rs` (last-write-wins merge rules). The design lives in `docs/google-calendar-sync-design.md`.
 - `src-tauri/examples/` — `dump.rs` prints the live database, `keyring.rs` checks whether the OS keyring works.
 - `src-tauri/gen/` — generated Tauri schemas; never hand-edit.
 - `src-tauri/capabilities/default.json` — Tauri v2 permission grants per window.
@@ -64,7 +64,7 @@ Desktop app: **Tauri 2** (Rust backend) + **React 19** + **TypeScript**, built w
 - checkd's calendars live in their own namespace (`location: "checkd"`); adventure_list uses `location: "adventure_list"`. The two apps never touch each other's calendars.
 - **The push** (`sync/payload.rs` + the drain in `sync/mod.rs`): a list becomes a Calendar, a task becomes an Event — the whole task travels as JSON in the description (`iCalUID` = the task id, `status: "confirmed"`, both dates parked on `2022-06-27`). The payload has a `version`; a payload of a newer app is ignored. `notified_key` never goes out.
 - The outbox is drained row by row (lists first, their tasks after them). A row that fails stays dirty and does not stop the others; a 404 means the remote object is gone (a delete counts as done, an update creates it again). `sync_links.parent_id` keeps the list of a deleted task, so its event can still be removed.
-- The **pull** (the other direction) is not there yet — the design lives in `docs/google-calendar-sync-design.md` (§7.2, §7.3). Until it lands, checkd only sends.
+- **The pull** (`sync/merge.rs` + `SyncManager::pull` in `sync/mod.rs`): runs before the push, fetches `checkd` calendars and events (using `syncToken` delta sync where available), applies last-write-wins merge rules on `updated_at`, removes clean local entities deleted remotely, and emits `data-changed` so the UI reloads.
 
 ## Tauri 2 gotchas
 

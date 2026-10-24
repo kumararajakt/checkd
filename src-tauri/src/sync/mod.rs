@@ -33,18 +33,25 @@
 pub mod auth;
 pub mod credentials;
 pub mod google;
+pub mod merge;
+pub mod payload;
 
+use std::collections::HashSet;
 use std::net::TcpListener;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::db::Db;
 use crate::sync::auth::{OAuthClient, SecretStore, Tokens};
 use crate::sync::credentials::ResolvedClient;
 use crate::sync::google::{GoogleApi, GoogleClient};
+use crate::sync::merge::{
+    handle_local_absent, merge_list, merge_task, ListAction, LocalAbsent, LocalState, TaskAction,
+};
+use crate::sync::payload::{list_calendar, task_event, ListPayload, TaskPayload};
 
 /// What a sync link points at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +87,8 @@ pub struct SyncLink {
     pub entity: SyncEntity,
     /// The local id — the list id or the task id.
     pub entity_id: String,
+    /// For a task, the local id of the list it belongs to.
+    pub parent_id: Option<String>,
     /// The Google calendar id / event id. `None` until it exists remotely.
     pub remote_id: Option<String>,
     /// The local change still has to be pushed.
@@ -102,6 +111,21 @@ pub const STATE_SYNCED_AT: &str = "synced_at";
 pub const STATE_ERROR: &str = "last_error";
 /// Key used in `sync_state` for the number of checkd calendars on the Google side.
 pub const STATE_CALENDARS: &str = "remote_calendars";
+pub const STATE_CALENDAR_LIST_TOKEN: &str = "calendar_list_token";
+
+/// Key used in `sync_state` for a calendar's event sync token.
+pub fn event_token_key(calendar_id: &str) -> String {
+    format!("events_token:{calendar_id}")
+}
+
+/// Whether an API error indicates that the remote object is missing (HTTP 404 / 410).
+fn is_not_found(err: &str) -> bool {
+    err.contains("404")
+        || err.contains("410")
+        || err.contains("Not Found")
+        || err.contains("gone on the Google side")
+        || err.contains("Resource has been deleted")
+}
 
 /// The name of the keyring entries.
 const KEYRING_SERVICE: &str = "checkd";
@@ -153,6 +177,8 @@ pub struct SyncManager {
     client: std::sync::Mutex<Option<ResolvedClient>>,
     /// The app-data directory — where the `.env` file lives.
     app_data: std::sync::Mutex<Option<std::path::PathBuf>>,
+    /// Handle to the running Tauri application (for emitting `data-changed`).
+    app: std::sync::Mutex<Option<AppHandle>>,
 }
 
 impl SyncManager {
@@ -162,6 +188,12 @@ impl SyncManager {
             Arc::new(auth::SafeStore::new(KEYRING_SERVICE)),
             Arc::new(GoogleApi::new()),
         )
+    }
+
+    /// Remembers the app handle so sync runs can emit `data-changed`.
+    pub fn set_app_handle(&self, handle: AppHandle) {
+        let mut app = self.app.lock().unwrap_or_else(|err| err.into_inner());
+        *app = Some(handle);
     }
 
     /// The directory the secrets fall back to when the system has no keyring.
@@ -177,6 +209,7 @@ impl SyncManager {
             api,
             client: std::sync::Mutex::new(None),
             app_data: std::sync::Mutex::new(None),
+            app: std::sync::Mutex::new(None),
         }
     }
 
@@ -352,14 +385,315 @@ impl SyncManager {
     /// The work of one sync run.
     async fn run_sync(&self, db: &Db) -> Result<(), String> {
         let token = self.access_token().await?;
-        let calendars = self.api.list_calendars(&token).await?;
+
+        self.pull(db, &token).await?;
+        let push_error = self.push(db, &token).await?;
+
+        let calendar_list = self.api.list_calendars_delta(&token, None).await?;
+        let calendars = calendar_list.calendars;
 
         db.set_sync_state(STATE_CALENDARS, &calendars.len().to_string())?;
+        if let Some(token_val) = calendar_list.next_sync_token {
+            db.set_sync_state(STATE_CALENDAR_LIST_TOKEN, &token_val)?;
+        }
         db.set_sync_state(
             STATE_SYNCED_AT,
             &chrono::Utc::now().timestamp_millis().to_string(),
         )?;
 
+        if let Some(app) = self.app.lock().unwrap_or_else(|err| err.into_inner()).clone() {
+            let _ = app.emit(crate::notify::DATA_CHANGED, ());
+        }
+
+        if let Some(err) = push_error {
+            return Err(err);
+        }
+
+        Ok(())
+    }
+
+    /// Pulls remote changes from Google Calendar and merges them into the local DB.
+    async fn pull(&self, db: &Db, token: &str) -> Result<(), String> {
+        let saved_cal_token = db.sync_state(STATE_CALENDAR_LIST_TOKEN)?.filter(|s| !s.is_empty());
+        let is_full_cal_sync = saved_cal_token.is_none();
+        let cal_list = self
+            .api
+            .list_calendars_delta(token, saved_cal_token.as_deref())
+            .await?;
+
+        let mut seen_list_ids = HashSet::new();
+
+        for remote_cal in &cal_list.calendars {
+            if remote_cal.deleted {
+                if let Some(link) = db.link_by_remote_id(SyncEntity::List, &remote_cal.id)? {
+                    if !link.deleted && handle_local_absent(link.dirty) == LocalAbsent::Delete {
+                        db.remove_remote_deleted_list(&link.entity_id)?;
+                    }
+                }
+                continue;
+            }
+
+            if !remote_cal.hidden {
+                let _ = self.api.hide_calendar(token, &remote_cal.id).await;
+            }
+
+            let Some(desc) = remote_cal.description.as_deref() else {
+                continue;
+            };
+            let Some(list_payload) = ListPayload::parse(desc) else {
+                continue;
+            };
+
+            let list_id = list_payload.id.clone();
+            seen_list_ids.insert(list_id.clone());
+
+            let local_list = db.sync_list(&list_id)?;
+            let link = db.link(SyncEntity::List, &list_id)?;
+            let link_deleted = link.as_ref().map(|l| l.deleted).unwrap_or(false);
+            let link_dirty = link.as_ref().map(|l| l.dirty).unwrap_or(false);
+            let local_state = LocalState {
+                exists: local_list.is_some(),
+                updated_at: local_list.as_ref().map(|l| l.updated_at),
+                dirty: link_dirty,
+                deleted: link_deleted,
+            };
+
+            match merge_list(&list_payload, Some(&local_state), link_deleted, link_dirty) {
+                ListAction::Create { list, .. } | ListAction::Update { list, .. } => {
+                    db.apply_remote_list(&list, &remote_cal.id)?;
+                }
+                ListAction::Ignore => {
+                    if link.as_ref().and_then(|l| l.remote_id.as_ref()).is_none() {
+                        db.set_remote_id(SyncEntity::List, &list_id, &remote_cal.id)?;
+                    }
+                }
+                ListAction::Tombstone => {
+                    if link.as_ref().and_then(|l| l.remote_id.as_ref()).is_none() {
+                        db.set_remote_id(SyncEntity::List, &list_id, &remote_cal.id)?;
+                    }
+                    continue;
+                }
+            }
+
+            if db.sync_list(&list_id)?.is_none() {
+                continue;
+            }
+
+            let evt_token_key = event_token_key(&remote_cal.id);
+            let saved_evt_token = db.sync_state(&evt_token_key)?.filter(|s| !s.is_empty());
+            let is_full_evt_sync = saved_evt_token.is_none();
+            let event_list = self
+                .api
+                .list_events_delta(token, &remote_cal.id, saved_evt_token.as_deref())
+                .await?;
+
+            let mut seen_task_ids = HashSet::new();
+
+            for remote_evt in &event_list.events {
+                if remote_evt.status.as_deref() == Some("cancelled") {
+                    let task_id = remote_evt
+                        .ical_uid
+                        .clone()
+                        .or_else(|| {
+                            db.link_by_remote_id(SyncEntity::Task, &remote_evt.id)
+                                .ok()
+                                .flatten()
+                                .map(|l| l.entity_id)
+                        });
+                    if let Some(tid) = task_id {
+                        let tlink = db.link(SyncEntity::Task, &tid)?;
+                        let dirty = tlink.as_ref().map(|l| l.dirty).unwrap_or(false);
+                        let deleted = tlink.as_ref().map(|l| l.deleted).unwrap_or(false);
+                        if !deleted && handle_local_absent(dirty) == LocalAbsent::Delete {
+                            db.remove_remote_deleted_task(&tid)?;
+                        }
+                    }
+                    continue;
+                }
+
+                let Some(desc) = remote_evt.description.as_deref() else {
+                    continue;
+                };
+                let Some(mut task_payload) = TaskPayload::parse(desc) else {
+                    continue;
+                };
+                task_payload.list_id = list_id.clone();
+
+                let task_id = task_payload.id.clone();
+                seen_task_ids.insert(task_id.clone());
+
+                let local_task = db.sync_task(&task_id)?;
+                let tlink = db.link(SyncEntity::Task, &task_id)?;
+                let tlink_deleted = tlink.as_ref().map(|l| l.deleted).unwrap_or(false);
+                let tlink_dirty = tlink.as_ref().map(|l| l.dirty).unwrap_or(false);
+                let tlocal_state = LocalState {
+                    exists: local_task.is_some(),
+                    updated_at: local_task.as_ref().map(|t| t.updated_at),
+                    dirty: tlink_dirty,
+                    deleted: tlink_deleted,
+                };
+
+                match merge_task(&task_payload, Some(&tlocal_state), tlink_deleted, tlink_dirty) {
+                    TaskAction::Create { task, .. } | TaskAction::Update { task, .. } => {
+                        db.apply_remote_task(&task, &remote_evt.id)?;
+                    }
+                    TaskAction::Ignore | TaskAction::Tombstone => {
+                        if tlink.as_ref().and_then(|l| l.remote_id.as_ref()).is_none() {
+                            db.set_remote_id(SyncEntity::Task, &task_id, &remote_evt.id)?;
+                        }
+                    }
+                }
+            }
+
+            if is_full_evt_sync {
+                for local_tid in db.task_ids_of(&list_id)? {
+                    if !seen_task_ids.contains(&local_tid) {
+                        let tlink = db.link(SyncEntity::Task, &local_tid)?;
+                        let dirty = tlink.as_ref().map(|l| l.dirty).unwrap_or(false);
+                        if handle_local_absent(dirty) == LocalAbsent::Delete {
+                            db.remove_remote_deleted_task(&local_tid)?;
+                        }
+                    }
+                }
+            }
+
+            if let Some(next_evt_token) = event_list.next_sync_token {
+                db.set_sync_state(&evt_token_key, &next_evt_token)?;
+            }
+        }
+
+        if is_full_cal_sync {
+            for local_lid in db.all_list_ids()? {
+                if !seen_list_ids.contains(&local_lid) {
+                    let link = db.link(SyncEntity::List, &local_lid)?;
+                    let dirty = link.as_ref().map(|l| l.dirty).unwrap_or(false);
+                    if handle_local_absent(dirty) == LocalAbsent::Delete {
+                        db.remove_remote_deleted_list(&local_lid)?;
+                    }
+                }
+            }
+        }
+
+        if let Some(next_cal_token) = cal_list.next_sync_token {
+            db.set_sync_state(STATE_CALENDAR_LIST_TOKEN, &next_cal_token)?;
+        }
+
+        Ok(())
+    }
+
+    /// Drains the outbox row by row (lists first, then tasks).
+    ///
+    /// A row that fails stays dirty and does not stop the others; returns the
+    /// first error encountered (if any).
+    async fn push(&self, db: &Db, token: &str) -> Result<Option<String>, String> {
+        let links = db.pending_links()?;
+        let mut first_error: Option<String> = None;
+
+        for link in links {
+            let result = match link.entity {
+                SyncEntity::List => self.push_list(db, token, &link).await,
+                SyncEntity::Task => self.push_task(db, token, &link).await,
+            };
+
+            if let Err(err) = result {
+                if first_error.is_none() {
+                    first_error = Some(err);
+                }
+            }
+        }
+
+        Ok(first_error)
+    }
+
+    async fn push_list(&self, db: &Db, token: &str, link: &SyncLink) -> Result<(), String> {
+        if link.deleted {
+            if let Some(remote_id) = link.remote_id.as_deref() {
+                match self.api.delete_calendar(token, remote_id).await {
+                    Ok(()) => {}
+                    Err(err) if is_not_found(&err) => {}
+                    Err(err) => return Err(err),
+                }
+            }
+            db.drop_link(SyncEntity::List, &link.entity_id)?;
+            return Ok(());
+        }
+
+        let Some(list) = db.sync_list(&link.entity_id)? else {
+            db.drop_link(SyncEntity::List, &link.entity_id)?;
+            return Ok(());
+        };
+
+        let payload = list_calendar(&list);
+
+        let remote_id = match link.remote_id.as_deref() {
+            Some(existing_id) => match self.api.update_calendar(token, existing_id, &payload).await {
+                Ok(updated) => updated.id,
+                Err(err) if is_not_found(&err) => {
+                    self.api.create_calendar(token, &payload).await?.id
+                }
+                Err(err) => return Err(err),
+            },
+            None => self.api.create_calendar(token, &payload).await?.id,
+        };
+
+        db.set_remote_id(SyncEntity::List, &link.entity_id, &remote_id)?;
+        db.mark_synced(SyncEntity::List, &link.entity_id)?;
+        Ok(())
+    }
+
+    async fn push_task(&self, db: &Db, token: &str, link: &SyncLink) -> Result<(), String> {
+        if link.deleted {
+            if let (Some(remote_id), Some(parent_id)) =
+                (link.remote_id.as_deref(), link.parent_id.as_deref())
+            {
+                let parent_link = db.link(SyncEntity::List, parent_id)?;
+                if let Some(plink) = parent_link {
+                    if !plink.deleted {
+                        if let Some(cal_id) = plink.remote_id.as_deref() {
+                            match self.api.delete_event(token, cal_id, remote_id).await {
+                                Ok(()) => {}
+                                Err(err) if is_not_found(&err) => {}
+                                Err(err) => return Err(err),
+                            }
+                        }
+                    }
+                }
+            }
+            db.drop_link(SyncEntity::Task, &link.entity_id)?;
+            return Ok(());
+        }
+
+        let Some(task) = db.sync_task(&link.entity_id)? else {
+            db.drop_link(SyncEntity::Task, &link.entity_id)?;
+            return Ok(());
+        };
+
+        let parent_link = db.link(SyncEntity::List, &task.list_id)?;
+        let Some(cal_id) = parent_link.and_then(|l| l.remote_id) else {
+            return Err("The list for this task has not been synced to Google yet.".to_string());
+        };
+
+        let payload = task_event(&task);
+
+        let remote_id = match link.remote_id.as_deref() {
+            Some(existing_id) => {
+                match self
+                    .api
+                    .update_event(token, &cal_id, existing_id, &payload)
+                    .await
+                {
+                    Ok(updated) => updated.id,
+                    Err(err) if is_not_found(&err) => {
+                        self.api.create_event(token, &cal_id, &payload).await?.id
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
+            None => self.api.create_event(token, &cal_id, &payload).await?.id,
+        };
+
+        db.set_remote_id(SyncEntity::Task, &link.entity_id, &remote_id)?;
+        db.mark_synced(SyncEntity::Task, &link.entity_id)?;
         Ok(())
     }
 

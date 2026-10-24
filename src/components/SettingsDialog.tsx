@@ -34,6 +34,17 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** When the last sync ran, in words. */
+function sinceLabel(at: number | null): string {
+  if (!at) return "never";
+  const minutes = Math.round((Date.now() - at) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(at).toLocaleDateString();
+}
+
 
 
 /**
@@ -148,15 +159,13 @@ function GoogleSyncSection() {
         <div className="flex flex-wrap items-center gap-2">
           {connected ? (
             <>
-              {/* The push/pull engine lands with P2 — then this button
-                  becomes "Sync now" and actually syncs. */}
               <button
                 type="button"
                 onClick={() => run(db.googleSyncNow)}
                 disabled={busy}
                 className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {busy ? "Working…" : "Test connection"}
+                {busy ? "Syncing…" : "Sync now"}
               </button>
               <button
                 type="button"
@@ -186,7 +195,12 @@ function GoogleSyncSection() {
 
         <p className="text-xs text-gray-500 dark:text-gray-400">
           {connected ? (
-            <>Connected as {status?.account ?? "your Google account"}</>
+            <>
+              Connected as {status?.account ?? "your Google account"} ·{" "}
+              {status?.pending ?? 0} change
+              {(status?.pending ?? 0) === 1 ? "" : "s"} pending · last synced{" "}
+              {sinceLabel(status?.lastSyncAt ?? null)}
+            </>
           ) : configured ? (
             "Sign in to give checkd access to your calendars."
           ) : (
@@ -194,8 +208,10 @@ function GoogleSyncSection() {
           )}
         </p>
 
-        {error && (
-          <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        {(error ?? status?.lastError) && (
+          <p className="text-xs text-red-600 dark:text-red-400">
+            {error ?? status?.lastError}
+          </p>
         )}
       </div>
     </section>

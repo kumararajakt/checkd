@@ -8,6 +8,8 @@ use std::pin::Pin;
 
 use serde::Deserialize;
 
+use crate::sync::payload::{CalendarPayload, EventPayload};
+
 /// A boxed future — the client is used through a trait object.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -25,11 +27,15 @@ const API_BASE: &str = "https://www.googleapis.com/calendar/v3";
 pub struct RemoteCalendar {
     pub id: String,
     pub summary: Option<String>,
+    pub description: Option<String>,
     /// The namespace — `checkd` for the calendars that belong to this app.
     pub location: Option<String>,
     /// Google leaves the flag out when the calendar is not hidden.
     #[serde(default)]
     pub hidden: bool,
+    /// Set by `calendarList.list` with `showDeleted=true` when removed.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 /// An event of a checkd calendar.
@@ -47,6 +53,20 @@ pub struct RemoteEvent {
     pub updated: Option<String>,
 }
 
+/// The result of listing events.
+#[derive(Debug, Clone)]
+pub struct EventList {
+    pub events: Vec<RemoteEvent>,
+    pub next_sync_token: Option<String>,
+}
+
+/// The result of listing calendars.
+#[derive(Debug, Clone)]
+pub struct CalendarList {
+    pub calendars: Vec<RemoteCalendar>,
+    pub next_sync_token: Option<String>,
+}
+
 /// The Calendar calls the sync needs.
 pub trait GoogleClient: Send + Sync + std::fmt::Debug {
     /// The calendars of the account that belong to checkd.
@@ -55,12 +75,81 @@ pub trait GoogleClient: Send + Sync + std::fmt::Debug {
         access_token: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteCalendar>, String>>;
 
+    /// The calendars of the account that belong to checkd with sync token support.
+    fn list_calendars_delta<'a>(
+        &'a self,
+        access_token: &'a str,
+        sync_token: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<CalendarList, String>>;
+
     /// The events of one calendar.
     fn list_events<'a>(
         &'a self,
         access_token: &'a str,
         calendar_id: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteEvent>, String>>;
+
+    /// The events of one calendar with sync token support.
+    fn list_events_delta<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        sync_token: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<EventList, String>>;
+
+    /// Creates a secondary calendar for a list and hides it from the user's normal calendar list.
+    fn create_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar: &'a CalendarPayload,
+    ) -> BoxFuture<'a, Result<RemoteCalendar, String>>;
+
+    /// Updates the metadata of a calendar.
+    fn update_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        calendar: &'a CalendarPayload,
+    ) -> BoxFuture<'a, Result<RemoteCalendar, String>>;
+
+    /// Deletes a secondary calendar.
+    fn delete_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>>;
+
+    /// Hides a calendar in the user's `calendarList`.
+    fn hide_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>>;
+
+    /// Creates an event in a calendar.
+    fn create_event<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        event: &'a EventPayload,
+    ) -> BoxFuture<'a, Result<RemoteEvent, String>>;
+
+    /// Updates an event in a calendar.
+    fn update_event<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        event_id: &'a str,
+        event: &'a EventPayload,
+    ) -> BoxFuture<'a, Result<RemoteEvent, String>>;
+
+    /// Deletes an event from a calendar.
+    fn delete_event<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        event_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>>;
 }
 
 /// The real client — talks to the Calendar API over HTTPS.
@@ -101,6 +190,104 @@ impl GoogleApi {
 
         serde_json::from_str(&body).map_err(|e| e.to_string())
     }
+
+    /// Sends a POST with a JSON body and reads the JSON answer.
+    async fn post_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        access_token: &str,
+        url: &str,
+        payload: &B,
+    ) -> Result<T, String> {
+        let response = self
+            .client
+            .post(url)
+            .bearer_auth(access_token)
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(|e| e.to_string())?;
+
+        if !status.is_success() {
+            return Err(describe_error(&body, status.as_u16()));
+        }
+
+        serde_json::from_str(&body).map_err(|e| e.to_string())
+    }
+
+    /// Sends a PUT with a JSON body and reads the JSON answer.
+    async fn put_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        access_token: &str,
+        url: &str,
+        payload: &B,
+    ) -> Result<T, String> {
+        let response = self
+            .client
+            .put(url)
+            .bearer_auth(access_token)
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(|e| e.to_string())?;
+
+        if !status.is_success() {
+            return Err(describe_error(&body, status.as_u16()));
+        }
+
+        serde_json::from_str(&body).map_err(|e| e.to_string())
+    }
+
+    /// Sends a PATCH with a JSON body and ignores the response body on success.
+    async fn patch_json<B: serde::Serialize>(
+        &self,
+        access_token: &str,
+        url: &str,
+        payload: &B,
+    ) -> Result<(), String> {
+        let response = self
+            .client
+            .patch(url)
+            .bearer_auth(access_token)
+            .json(payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(|e| e.to_string())?;
+
+        if !status.is_success() {
+            return Err(describe_error(&body, status.as_u16()));
+        }
+
+        Ok(())
+    }
+
+    /// Sends a DELETE request.
+    async fn delete_req(&self, access_token: &str, url: &str) -> Result<(), String> {
+        let response = self
+            .client
+            .delete(url)
+            .bearer_auth(access_token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(|e| e.to_string())?;
+
+        if !status.is_success() {
+            return Err(describe_error(&body, status.as_u16()));
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for GoogleApi {
@@ -115,8 +302,20 @@ impl GoogleClient for GoogleApi {
         access_token: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteCalendar>, String>> {
         Box::pin(async move {
+            let list = self.list_calendars_delta(access_token, None).await?;
+            Ok(list.calendars)
+        })
+    }
+
+    fn list_calendars_delta<'a>(
+        &'a self,
+        access_token: &'a str,
+        sync_token: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<CalendarList, String>> {
+        Box::pin(async move {
             let mut all_items: Vec<RemoteCalendar> = Vec::new();
             let mut page_token: Option<String> = None;
+            let next_sync_token_result: Option<String>;
 
             loop {
                 #[derive(Deserialize)]
@@ -125,29 +324,56 @@ impl GoogleClient for GoogleApi {
                     items: Vec<RemoteCalendar>,
                     #[serde(rename = "nextPageToken")]
                     next_page_token: Option<String>,
+                    #[serde(rename = "nextSyncToken")]
+                    next_sync_token: Option<String>,
                 }
 
-                let mut url = format!(
-                    "{}/users/me/calendarList?fields=items(id,summary,location,hidden),nextPageToken&showHidden=true",
-                    self.base
-                );
+                let mut url = if let Some(token) = sync_token {
+                    format!(
+                        "{}/users/me/calendarList?fields=items(id,summary,description,location,hidden,deleted),nextPageToken,nextSyncToken&showHidden=true&showDeleted=true&syncToken={}",
+                        self.base,
+                        urlencode(token)
+                    )
+                } else {
+                    format!(
+                        "{}/users/me/calendarList?fields=items(id,summary,description,location,hidden,deleted),nextPageToken,nextSyncToken&showHidden=true",
+                        self.base
+                    )
+                };
                 if let Some(ref token) = page_token {
                     url.push_str("&pageToken=");
                     url.push_str(&urlencode(token));
                 }
-                let answer: Answer = self.get_json(access_token, &url).await?;
+                let answer: Answer = match self.get_json(access_token, &url).await {
+                    Ok(answer) => answer,
+                    Err(err) => {
+                        if err.contains("410") || err.contains("Gone") {
+                            if sync_token.is_some() {
+                                return self.list_calendars_delta(access_token, None).await;
+                            }
+                        }
+                        return Err(err);
+                    }
+                };
                 all_items.extend(answer.items);
 
-                match answer.next_page_token {
-                    Some(token) => page_token = Some(token),
-                    None => break,
+                if answer.next_page_token.is_some() {
+                    page_token = answer.next_page_token;
+                } else {
+                    next_sync_token_result = answer.next_sync_token.clone();
+                    break;
                 }
             }
 
-            Ok(all_items
-                .into_iter()
-                .filter(|calendar| calendar.location.as_deref() == Some(NAMESPACE))
-                .collect())
+            Ok(CalendarList {
+                calendars: all_items
+                    .into_iter()
+                    .filter(|calendar| {
+                        calendar.deleted || calendar.location.as_deref() == Some(NAMESPACE)
+                    })
+                    .collect(),
+                next_sync_token: next_sync_token_result,
+            })
         })
     }
 
@@ -157,8 +383,21 @@ impl GoogleClient for GoogleApi {
         calendar_id: &'a str,
     ) -> BoxFuture<'a, Result<Vec<RemoteEvent>, String>> {
         Box::pin(async move {
+            let list = self.list_events_delta(access_token, calendar_id, None).await?;
+            Ok(list.events)
+        })
+    }
+
+    fn list_events_delta<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        sync_token: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<EventList, String>> {
+        Box::pin(async move {
             let mut all_items: Vec<RemoteEvent> = Vec::new();
             let mut page_token: Option<String> = None;
+            let next_sync_token_result: Option<String>;
 
             loop {
                 #[derive(Deserialize)]
@@ -167,26 +406,155 @@ impl GoogleClient for GoogleApi {
                     items: Vec<RemoteEvent>,
                     #[serde(rename = "nextPageToken")]
                     next_page_token: Option<String>,
+                    #[serde(rename = "nextSyncToken")]
+                    next_sync_token: Option<String>,
                 }
 
-                let mut url = format!(
-                    "{}/calendars/{}/events?fields=items(id,iCalUID,summary,description,status,updated),nextPageToken&maxResults=250&singleEvents=false",
-                    self.base,
-                    urlencode(calendar_id)
-                );
+                let mut url = if let Some(token) = sync_token {
+                    format!(
+                        "{}/calendars/{}/events?fields=items(id,iCalUID,summary,description,status,updated),nextPageToken,nextSyncToken&showDeleted=true&singleEvents=false&syncToken={}",
+                        self.base,
+                        urlencode(calendar_id),
+                        urlencode(token)
+                    )
+                } else {
+                    format!(
+                        "{}/calendars/{}/events?fields=items(id,iCalUID,summary,description,status,updated),nextPageToken,nextSyncToken&maxResults=250&showDeleted=true&singleEvents=false",
+                        self.base,
+                        urlencode(calendar_id)
+                    )
+                };
                 if let Some(ref token) = page_token {
                     url.push_str("&pageToken=");
                     url.push_str(&urlencode(token));
                 }
-                let answer: Answer = self.get_json(access_token, &url).await?;
+                let answer: Answer = match self.get_json(access_token, &url).await {
+                    Ok(answer) => answer,
+                    Err(err) => {
+                        if err.contains("410") || err.contains("Gone") {
+                            if sync_token.is_some() {
+                                return self.list_events_delta(access_token, calendar_id, None).await;
+                            }
+                        }
+                        return Err(err);
+                    }
+                };
                 all_items.extend(answer.items);
 
-                match answer.next_page_token {
-                    Some(token) => page_token = Some(token),
-                    None => break,
+                if answer.next_page_token.is_some() {
+                    page_token = answer.next_page_token;
+                } else {
+                    next_sync_token_result = answer.next_sync_token.clone();
+                    break;
                 }
             }
-            Ok(all_items)
+            Ok(EventList {
+                events: all_items,
+                next_sync_token: next_sync_token_result,
+            })
+        })
+    }
+
+    fn create_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar: &'a CalendarPayload,
+    ) -> BoxFuture<'a, Result<RemoteCalendar, String>> {
+        Box::pin(async move {
+            let url = format!("{}/calendars", self.base);
+            let created: RemoteCalendar = self.post_json(access_token, &url, calendar).await?;
+            let _ = self.hide_calendar(access_token, &created.id).await;
+            Ok(created)
+        })
+    }
+
+    fn update_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        calendar: &'a CalendarPayload,
+    ) -> BoxFuture<'a, Result<RemoteCalendar, String>> {
+        Box::pin(async move {
+            let url = format!("{}/calendars/{}", self.base, urlencode(calendar_id));
+            self.put_json(access_token, &url, calendar).await
+        })
+    }
+
+    fn delete_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let url = format!("{}/calendars/{}", self.base, urlencode(calendar_id));
+            self.delete_req(access_token, &url).await
+        })
+    }
+
+    fn hide_calendar<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            #[derive(serde::Serialize)]
+            struct Patch {
+                hidden: bool,
+            }
+            let url = format!(
+                "{}/users/me/calendarList/{}",
+                self.base,
+                urlencode(calendar_id)
+            );
+            self.patch_json(access_token, &url, &Patch { hidden: true })
+                .await
+        })
+    }
+
+    fn create_event<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        event: &'a EventPayload,
+    ) -> BoxFuture<'a, Result<RemoteEvent, String>> {
+        Box::pin(async move {
+            let url = format!("{}/calendars/{}/events", self.base, urlencode(calendar_id));
+            self.post_json(access_token, &url, event).await
+        })
+    }
+
+    fn update_event<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        event_id: &'a str,
+        event: &'a EventPayload,
+    ) -> BoxFuture<'a, Result<RemoteEvent, String>> {
+        Box::pin(async move {
+            let url = format!(
+                "{}/calendars/{}/events/{}",
+                self.base,
+                urlencode(calendar_id),
+                urlencode(event_id)
+            );
+            self.put_json(access_token, &url, event).await
+        })
+    }
+
+    fn delete_event<'a>(
+        &'a self,
+        access_token: &'a str,
+        calendar_id: &'a str,
+        event_id: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(async move {
+            let url = format!(
+                "{}/calendars/{}/events/{}",
+                self.base,
+                urlencode(calendar_id),
+                urlencode(event_id)
+            );
+            self.delete_req(access_token, &url).await
         })
     }
 }

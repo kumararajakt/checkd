@@ -85,15 +85,25 @@ function App() {
   // Writes are optimistic: the UI updates first, then we persist. If a write
   // fails we resync from the database so the UI never drifts from disk.
   function persist(write: Promise<unknown>): Promise<unknown> {
-    return write.catch(async (err) => {
-      setError(`Could not save changes: ${err}`);
-      try {
-        const data = await db.load();
-        setLists(data.lists);
-      } catch {
-        // The banner already explains the problem.
-      }
-    });
+    return write
+      .then(() => {
+        db.googleStatus()
+          .then((status) => {
+            if (status.connected) {
+              db.googleSyncNow().catch(() => {});
+            }
+          })
+          .catch(() => {});
+      })
+      .catch(async (err) => {
+        setError(`Could not save changes: ${err}`);
+        try {
+          const data = await db.load();
+          setLists(data.lists);
+        } catch {
+          // The banner already explains the problem.
+        }
+      });
   }
 
   function addList(name: string) {
@@ -101,15 +111,7 @@ function App() {
     setLists((prev) => [...prev, list]);
     setSelectedId(list.id);
     updateSettings({ lastListId: list.id });
-    persist(db.createList(list.id, list.name, list.color)).then(() => {
-      db.googleStatus()
-        .then((status) => {
-          if (status.connected) {
-            db.googleSyncNow().catch(() => {});
-          }
-        })
-        .catch(() => {});
-    });
+    persist(db.createList(list.id, list.name, list.color));
   }
 
   function updateTasks(listId: string, update: (tasks: List["tasks"]) => List["tasks"]) {
@@ -135,15 +137,7 @@ function App() {
       occurrenceIndex: 0,
     };
     updateTasks(listId, (tasks) => [...tasks, task]);
-    persist(db.createTask(task.id, listId, task.title)).then(() => {
-      db.googleStatus()
-        .then((status) => {
-          if (status.connected) {
-            db.googleSyncNow().catch(() => {});
-          }
-        })
-        .catch(() => {});
-    });
+    persist(db.createTask(task.id, listId, task.title));
   }
 
   function renameTask(listId: string, taskId: string, title: string) {

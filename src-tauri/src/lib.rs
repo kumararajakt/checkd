@@ -197,6 +197,8 @@ pub fn run() {
     builder::<tauri::Wry>(None, SyncManager::new())
         .setup(|app| {
             app.manage(Db::open(app.handle())?);
+            app.state::<SyncManager>()
+                .set_app_handle(app.handle().clone());
 
             let data_dir = app.path().app_data_dir().ok();
 
@@ -277,7 +279,7 @@ pub fn run() {
 mod ipc_tests {
     use super::*;
     use crate::db::{MonthRepeat, MonthWeek, RepeatEnd, RepeatUnit};
-    use crate::sync::auth::MemoryStore;
+    use crate::sync::auth::{MemoryStore, SecretStore};
     use crate::sync::google::{BoxFuture, GoogleClient, RemoteCalendar, RemoteEvent};
     use std::sync::Arc;
     use tauri::ipc::InvokeResponseBody;
@@ -286,29 +288,228 @@ mod ipc_tests {
 
     /// A Google client that never talks to the network.
     #[derive(Debug, Default)]
-    struct FakeGoogle;
+    struct FakeGoogle {
+        calendars: std::sync::Mutex<Vec<RemoteCalendar>>,
+        events: std::sync::Mutex<std::collections::HashMap<String, Vec<RemoteEvent>>>,
+        next_id: std::sync::atomic::AtomicUsize,
+    }
+
+    impl FakeGoogle {
+        fn fresh_id(&self, prefix: &str) -> String {
+            let n = self
+                .next_id
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            format!("{prefix}-{n}")
+        }
+    }
 
     impl GoogleClient for FakeGoogle {
         fn list_calendars<'a>(
             &'a self,
-            _access_token: &'a str,
+            access_token: &'a str,
         ) -> BoxFuture<'a, Result<Vec<RemoteCalendar>, String>> {
-            Box::pin(async {
-                Ok(vec![RemoteCalendar {
-                    id: "cal-1".to_string(),
-                    summary: Some("Groceries".to_string()),
-                    location: Some("checkd".to_string()),
-                    hidden: true,
-                }])
+            Box::pin(async move {
+                Ok(self
+                    .list_calendars_delta(access_token, None)
+                    .await?
+                    .calendars)
+            })
+        }
+
+        fn list_calendars_delta<'a>(
+            &'a self,
+            _access_token: &'a str,
+            _sync_token: Option<&'a str>,
+        ) -> BoxFuture<'a, Result<crate::sync::google::CalendarList, String>> {
+            let cals = self
+                .calendars
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            Box::pin(async move {
+                Ok(crate::sync::google::CalendarList {
+                    calendars: cals,
+                    next_sync_token: Some("token".to_string()),
+                })
             })
         }
 
         fn list_events<'a>(
             &'a self,
-            _access_token: &'a str,
-            _calendar_id: &'a str,
+            access_token: &'a str,
+            calendar_id: &'a str,
         ) -> BoxFuture<'a, Result<Vec<RemoteEvent>, String>> {
-            Box::pin(async { Ok(Vec::new()) })
+            Box::pin(async move {
+                Ok(self
+                    .list_events_delta(access_token, calendar_id, None)
+                    .await?
+                    .events)
+            })
+        }
+
+        fn list_events_delta<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar_id: &'a str,
+            _sync_token: Option<&'a str>,
+        ) -> BoxFuture<'a, Result<crate::sync::google::EventList, String>> {
+            let evts = self
+                .events
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(calendar_id)
+                .cloned()
+                .unwrap_or_default();
+            Box::pin(async move {
+                Ok(crate::sync::google::EventList {
+                    events: evts,
+                    next_sync_token: Some("etoken".to_string()),
+                })
+            })
+        }
+
+        fn create_calendar<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar: &'a crate::sync::payload::CalendarPayload,
+        ) -> BoxFuture<'a, Result<RemoteCalendar, String>> {
+            let id = self.fresh_id("cal");
+            let remote = RemoteCalendar {
+                id,
+                summary: Some(calendar.summary.clone()),
+                description: Some(calendar.description.clone()),
+                location: Some(calendar.location.clone()),
+                hidden: true,
+                deleted: false,
+            };
+            self.calendars
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(remote.clone());
+            Box::pin(async move { Ok(remote) })
+        }
+
+        fn update_calendar<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar_id: &'a str,
+            calendar: &'a crate::sync::payload::CalendarPayload,
+        ) -> BoxFuture<'a, Result<RemoteCalendar, String>> {
+            let mut cals = self.calendars.lock().unwrap_or_else(|e| e.into_inner());
+            let found = cals.iter_mut().find(|c| c.id == calendar_id && !c.deleted);
+            let result = match found {
+                Some(c) => {
+                    c.summary = Some(calendar.summary.clone());
+                    c.description = Some(calendar.description.clone());
+                    c.location = Some(calendar.location.clone());
+                    Ok(c.clone())
+                }
+                None => Err("404 Not Found".to_string()),
+            };
+            Box::pin(async move { result })
+        }
+
+        fn delete_calendar<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar_id: &'a str,
+        ) -> BoxFuture<'a, Result<(), String>> {
+            let mut cals = self.calendars.lock().unwrap_or_else(|e| e.into_inner());
+            let before = cals.len();
+            cals.retain(|c| c.id != calendar_id);
+            let result = if cals.len() == before {
+                Err("404 Not Found".to_string())
+            } else {
+                self.events
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(calendar_id);
+                Ok(())
+            };
+            Box::pin(async move { result })
+        }
+
+        fn hide_calendar<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar_id: &'a str,
+        ) -> BoxFuture<'a, Result<(), String>> {
+            let mut cals = self.calendars.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(c) = cals.iter_mut().find(|c| c.id == calendar_id) {
+                c.hidden = true;
+            }
+            Box::pin(async { Ok(()) })
+        }
+
+        fn create_event<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar_id: &'a str,
+            event: &'a crate::sync::payload::EventPayload,
+        ) -> BoxFuture<'a, Result<RemoteEvent, String>> {
+            let id = self.fresh_id("evt");
+            let remote = RemoteEvent {
+                id,
+                ical_uid: Some(event.ical_uid.clone()),
+                summary: Some(event.summary.clone()),
+                description: Some(event.description.clone()),
+                status: Some(event.status.clone()),
+                updated: None,
+            };
+            self.events
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .entry(calendar_id.to_string())
+                .or_default()
+                .push(remote.clone());
+            Box::pin(async move { Ok(remote) })
+        }
+
+        fn update_event<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar_id: &'a str,
+            event_id: &'a str,
+            event: &'a crate::sync::payload::EventPayload,
+        ) -> BoxFuture<'a, Result<RemoteEvent, String>> {
+            let mut all_events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+            let found = all_events
+                .get_mut(calendar_id)
+                .and_then(|list| list.iter_mut().find(|e| e.id == event_id));
+            let result = match found {
+                Some(e) => {
+                    e.ical_uid = Some(event.ical_uid.clone());
+                    e.summary = Some(event.summary.clone());
+                    e.description = Some(event.description.clone());
+                    e.status = Some(event.status.clone());
+                    Ok(e.clone())
+                }
+                None => Err("404 Not Found".to_string()),
+            };
+            Box::pin(async move { result })
+        }
+
+        fn delete_event<'a>(
+            &'a self,
+            _access_token: &'a str,
+            calendar_id: &'a str,
+            event_id: &'a str,
+        ) -> BoxFuture<'a, Result<(), String>> {
+            let mut all_events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+            let result = match all_events.get_mut(calendar_id) {
+                Some(list) => {
+                    let before = list.len();
+                    list.retain(|e| e.id != event_id);
+                    if list.len() == before {
+                        Err("404 Not Found".to_string())
+                    } else {
+                        Ok(())
+                    }
+                }
+                None => Err("404 Not Found".to_string()),
+            };
+            Box::pin(async move { result })
         }
     }
 
@@ -317,6 +518,8 @@ mod ipc_tests {
         _app: tauri::App<MockRuntime>,
         webview: tauri::WebviewWindow<MockRuntime>,
         key: String,
+        google: Arc<FakeGoogle>,
+        secrets: Arc<MemoryStore>,
     }
 
     impl Ipc {
@@ -325,9 +528,12 @@ mod ipc_tests {
             let _ = std::fs::remove_file(&path);
             let db = Db::open_path(&path).expect("open temp db");
 
+            let google = Arc::new(FakeGoogle::default());
+            let secrets = Arc::new(MemoryStore::default());
+
             let app = builder::<MockRuntime>(
                 Some(db),
-                SyncManager::with_stores(Arc::new(MemoryStore::default()), Arc::new(FakeGoogle)),
+                SyncManager::with_stores(secrets.clone(), google.clone()),
             )
             .build(mock_context(noop_assets()))
             .expect("build app");
@@ -340,7 +546,22 @@ mod ipc_tests {
                 _app: app,
                 webview,
                 key,
+                google,
+                secrets,
             }
+        }
+
+        /// Simulates a connected Google account with a fresh access token.
+        fn connect(&self) {
+            let tokens = crate::sync::auth::Tokens {
+                access_token: "fake-token".to_string(),
+                refresh_token: Some("fake-refresh".to_string()),
+                expires_at: chrono::Utc::now().timestamp() + 3600,
+            };
+            self.secrets
+                .set("access-token", &serde_json::to_string(&tokens).unwrap())
+                .unwrap();
+            self.secrets.set("refresh-token", "fake-refresh").unwrap();
         }
 
         /// Calls a command the way the frontend's `invoke` does.
@@ -590,5 +811,157 @@ mod ipc_tests {
         let response = ipc.call("google_status", serde_json::json!({})).expect("google_status");
         let status: SyncStatus = response.deserialize().expect("deserialize status");
         assert_eq!(status.pending, 1);
+    }
+
+    #[test]
+    fn sync_now_pushes_lists_and_tasks_updates_and_deletes() {
+        let ipc = Ipc::new("push");
+        ipc.connect();
+
+        ipc.call(
+            "create_list",
+            serde_json::json!({ "id": "l1", "name": "Groceries", "color": "#3b82f6" }),
+        )
+        .expect("create_list");
+        ipc.call(
+            "create_task",
+            serde_json::json!({ "id": "t1", "listId": "l1", "title": "Milk" }),
+        )
+        .expect("create_task");
+
+        // Push both to the fake Google client.
+        let response = ipc
+            .call("google_sync_now", serde_json::json!({}))
+            .expect("google_sync_now");
+        let status: SyncStatus = response.deserialize().expect("status");
+        assert_eq!(status.pending, 0);
+
+        {
+            let cals = ipc.google.calendars.lock().unwrap();
+            assert_eq!(cals.len(), 1);
+            assert_eq!(cals[0].summary.as_deref(), Some("Groceries"));
+            let cal_id = cals[0].id.clone();
+
+            let evts = ipc.google.events.lock().unwrap();
+            let list_evts = evts.get(&cal_id).expect("events for cal");
+            assert_eq!(list_evts.len(), 1);
+            assert_eq!(list_evts[0].summary.as_deref(), Some("Milk"));
+            assert_eq!(list_evts[0].ical_uid.as_deref(), Some("t1"));
+        }
+
+        // Rename the task and sync again — it updates in place instead of creating a second event.
+        ipc.call(
+            "rename_task",
+            serde_json::json!({ "id": "t1", "title": "Oat milk" }),
+        )
+        .expect("rename_task");
+
+        let response = ipc
+            .call("google_sync_now", serde_json::json!({}))
+            .expect("google_sync_now");
+        let status: SyncStatus = response.deserialize().expect("status");
+        assert_eq!(status.pending, 0);
+
+        {
+            let cals = ipc.google.calendars.lock().unwrap();
+            let cal_id = cals[0].id.clone();
+            let evts = ipc.google.events.lock().unwrap();
+            let list_evts = evts.get(&cal_id).expect("events for cal");
+            assert_eq!(list_evts.len(), 1);
+            assert_eq!(list_evts[0].summary.as_deref(), Some("Oat milk"));
+        }
+
+        // Delete the task and sync — the remote event is removed.
+        ipc.call("delete_task", serde_json::json!({ "id": "t1" }))
+            .expect("delete_task");
+        ipc.call("google_sync_now", serde_json::json!({}))
+            .expect("google_sync_now");
+
+        {
+            let cals = ipc.google.calendars.lock().unwrap();
+            let cal_id = cals[0].id.clone();
+            let evts = ipc.google.events.lock().unwrap();
+            let list_evts = evts.get(&cal_id).expect("events for cal");
+            assert!(list_evts.is_empty());
+        }
+
+        // Delete the list and sync — the remote calendar is removed.
+        ipc.call("delete_list", serde_json::json!({ "id": "l1" }))
+            .expect("delete_list");
+        ipc.call("google_sync_now", serde_json::json!({}))
+            .expect("google_sync_now");
+
+        assert!(ipc.google.calendars.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn sync_now_pulls_remote_lists_and_tasks_into_sqlite() {
+        let ipc = Ipc::new("pull");
+        ipc.connect();
+
+        // Seed the fake Google client with a remote checkd calendar and task event.
+        let list_payload = crate::sync::payload::list_payload_json(&crate::db::SyncList {
+            id: "remote-l1".to_string(),
+            name: "Work".to_string(),
+            color: "#ef4444".to_string(),
+            position: 1,
+            updated_at: 5_000_000_000_000,
+        });
+        let task_payload = crate::sync::payload::task_payload_json(&crate::db::SyncTask {
+            id: "remote-t1".to_string(),
+            list_id: "remote-l1".to_string(),
+            title: "Ship sync".to_string(),
+            description: "Two-way".to_string(),
+            due_date: Some("2026-10-25".to_string()),
+            due_time: Some("14:00".to_string()),
+            repeat: None,
+            completed: false,
+            next_occurrence: None,
+            occurrence_index: 0,
+            position: 1,
+            updated_at: 5_000_000_000_000,
+        });
+
+        ipc.google.calendars.lock().unwrap().push(RemoteCalendar {
+            id: "gcal-1".to_string(),
+            summary: Some("Work".to_string()),
+            description: Some(list_payload),
+            location: Some("checkd".to_string()),
+            hidden: true,
+            deleted: false,
+        });
+        ipc.google
+            .events
+            .lock()
+            .unwrap()
+            .insert(
+                "gcal-1".to_string(),
+                vec![RemoteEvent {
+                    id: "gevt-1".to_string(),
+                    ical_uid: Some("remote-t1".to_string()),
+                    summary: Some("Ship sync".to_string()),
+                    description: Some(task_payload),
+                    status: Some("confirmed".to_string()),
+                    updated: None,
+                }],
+            );
+
+        ipc.call("google_sync_now", serde_json::json!({}))
+            .expect("google_sync_now");
+
+        let response = ipc.call("load_data", serde_json::json!({})).expect("load_data");
+        let data: AppData = response.deserialize().expect("app data");
+        assert_eq!(data.lists.len(), 1);
+        assert_eq!(data.lists[0].id, "remote-l1");
+        assert_eq!(data.lists[0].name, "Work");
+        assert_eq!(data.lists[0].color, "#ef4444");
+        assert_eq!(data.lists[0].tasks.len(), 1);
+        assert_eq!(data.lists[0].tasks[0].id, "remote-t1");
+        assert_eq!(data.lists[0].tasks[0].title, "Ship sync");
+        assert_eq!(data.lists[0].tasks[0].description, "Two-way");
+        assert_eq!(
+            data.lists[0].tasks[0].due_date.as_deref(),
+            Some("2026-10-25")
+        );
     }
 }

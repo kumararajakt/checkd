@@ -94,6 +94,35 @@ pub struct TaskWithList {
     pub list_name: String,
 }
 
+/// A list row with its position and `updated_at` timestamp (used by the sync engine).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncList {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub position: i64,
+    pub updated_at: i64,
+}
+
+/// A task row with its `list_id`, `position`, and `updated_at` timestamp (used by the sync engine).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncTask {
+    pub id: String,
+    pub list_id: String,
+    pub title: String,
+    pub description: String,
+    pub due_date: Option<String>,
+    pub due_time: Option<String>,
+    pub repeat: Option<Repeat>,
+    pub completed: bool,
+    pub next_occurrence: Option<String>,
+    pub occurrence_index: i64,
+    pub position: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RepeatUnit {
@@ -103,7 +132,7 @@ pub enum RepeatUnit {
     Year,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum RepeatEnd {
     Never,
@@ -147,7 +176,7 @@ impl<'de> Deserialize<'de> for MonthWeek {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum MonthRepeat {
     /// A day of the month, 1..=31.
@@ -158,7 +187,7 @@ pub enum MonthRepeat {
     Weekday { weekday: i64, week: MonthWeek },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Repeat {
     pub unit: RepeatUnit,
@@ -421,7 +450,7 @@ impl Db {
             .map(|_| ())
             .map_err(|e| e.to_string())?;
 
-        self.mark_dirty(SyncEntity::List, id)
+        self.mark_dirty(SyncEntity::List, id, None)
     }
 
     pub fn rename_list(&self, id: &str, name: &str) -> Result<(), String> {
@@ -446,9 +475,9 @@ impl Db {
             .map(|_| ())
             .map_err(|e| e.to_string())?;
 
-        self.mark_deleted(SyncEntity::List, id)?;
+        self.mark_deleted(SyncEntity::List, id, None)?;
         for task_id in task_ids {
-            self.mark_deleted(SyncEntity::Task, &task_id)?;
+            self.mark_deleted(SyncEntity::Task, &task_id, Some(id))?;
         }
 
         Ok(())
@@ -478,7 +507,7 @@ impl Db {
             .map(|_| ())
             .map_err(|e| e.to_string())?;
 
-        self.mark_dirty(SyncEntity::Task, id)
+        self.mark_dirty(SyncEntity::Task, id, Some(list_id))
     }
 
     pub fn rename_task(&self, id: &str, title: &str) -> Result<(), String> {
@@ -674,6 +703,8 @@ impl Db {
     }
 
     pub fn delete_task(&self, id: &str) -> Result<(), String> {
+        let parent_id = self.task_list_id(id)?;
+
         self.conn()
             .execute("DELETE FROM tasks WHERE id = ?1", params![id])
             .map(|_| ())
@@ -682,13 +713,219 @@ impl Db {
         // The row is gone, but the remote object still has to be deleted —
         // the tombstone in `sync_links` keeps that job (and stops a pull
         // from bringing the task back).
-        self.mark_deleted(SyncEntity::Task, id)
+        self.mark_deleted(SyncEntity::Task, id, parent_id.as_deref())
     }
 
     // --- sync bookkeeping ---------------------------------------------------
 
+    /// The list a task belongs to.
+    fn task_list_id(&self, id: &str) -> Result<Option<String>, String> {
+        self.conn()
+            .query_row(
+                "SELECT list_id FROM tasks WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .map(Some)
+            .or_else(|err| match err {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other.to_string()),
+            })
+    }
+
+    /// Reads a list row as a `SyncList`.
+    pub fn sync_list(&self, id: &str) -> Result<Option<SyncList>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare("SELECT id, name, color, position, updated_at FROM lists WHERE id = ?1")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                Ok(SyncList {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    color: row.get(2)?,
+                    position: row.get(3)?,
+                    updated_at: row.get(4)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(|e| e.to_string())?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Reads a task row as a `SyncTask`.
+    pub fn sync_task(&self, id: &str) -> Result<Option<SyncTask>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, list_id, title, description, due_date, due_time, repeat_json,
+                        completed, next_occurrence, occurrence_index, position, updated_at
+                 FROM tasks WHERE id = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                let repeat_json: Option<String> = row.get(6)?;
+                Ok(SyncTask {
+                    id: row.get(0)?,
+                    list_id: row.get(1)?,
+                    title: row.get(2)?,
+                    description: row.get(3)?,
+                    due_date: row.get(4)?,
+                    due_time: row.get(5)?,
+                    repeat: repeat_json.and_then(|json| serde_json::from_str(&json).ok()),
+                    completed: row.get::<_, i64>(7)? != 0,
+                    next_occurrence: row.get(8)?,
+                    occurrence_index: row.get(9)?,
+                    position: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(|e| e.to_string())?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Upserts a list pulled from Google and marks its sync link clean.
+    pub fn apply_remote_list(&self, list: &SyncList, remote_id: &str) -> Result<(), String> {
+        let now = now_ms();
+        self.conn()
+            .execute(
+                "INSERT INTO lists (id, name, color, position, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(id) DO UPDATE SET
+                     name = excluded.name,
+                     color = excluded.color,
+                     position = excluded.position,
+                     updated_at = excluded.updated_at",
+                params![list.id, list.name, list.color, list.position, list.updated_at],
+            )
+            .map_err(|e| e.to_string())?;
+
+        self.conn()
+            .execute(
+                "INSERT INTO sync_links (entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at)
+                 VALUES ('list', ?1, ?2, 0, 0, ?3, ?4)
+                 ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                     remote_id = excluded.remote_id,
+                     dirty = 0,
+                     deleted = 0,
+                     updated_at = excluded.updated_at,
+                     synced_at = excluded.synced_at",
+                params![list.id, remote_id, list.updated_at, now],
+            )
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    /// Upserts a task pulled from Google and marks its sync link clean.
+    pub fn apply_remote_task(&self, task: &SyncTask, remote_id: &str) -> Result<(), String> {
+        let now = now_ms();
+        let encoded = match &task.repeat {
+            Some(rule) => Some(serde_json::to_string(rule).map_err(|e| e.to_string())?),
+            None => None,
+        };
+
+        self.conn()
+            .execute(
+                "INSERT INTO tasks (id, list_id, title, description, due_date, due_time, repeat_json,
+                                    completed, next_occurrence, occurrence_index, position, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                 ON CONFLICT(id) DO UPDATE SET
+                     list_id = excluded.list_id,
+                     title = excluded.title,
+                     description = excluded.description,
+                     due_date = excluded.due_date,
+                     due_time = excluded.due_time,
+                     repeat_json = excluded.repeat_json,
+                     completed = excluded.completed,
+                     next_occurrence = excluded.next_occurrence,
+                     occurrence_index = excluded.occurrence_index,
+                     position = excluded.position,
+                     updated_at = excluded.updated_at",
+                params![
+                    task.id,
+                    task.list_id,
+                    task.title,
+                    task.description,
+                    task.due_date,
+                    task.due_time,
+                    encoded,
+                    task.completed as i64,
+                    task.next_occurrence,
+                    task.occurrence_index,
+                    task.position,
+                    task.updated_at,
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+
+        self.refresh_notification_state(&task.id)?;
+
+        self.conn()
+            .execute(
+                "INSERT INTO sync_links (entity_type, entity_id, parent_id, remote_id, dirty, deleted, updated_at, synced_at)
+                 VALUES ('task', ?1, ?2, ?3, 0, 0, ?4, ?5)
+                 ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                     parent_id = excluded.parent_id,
+                     remote_id = excluded.remote_id,
+                     dirty = 0,
+                     deleted = 0,
+                     updated_at = excluded.updated_at,
+                     synced_at = excluded.synced_at",
+                params![task.id, task.list_id, remote_id, task.updated_at, now],
+            )
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    /// Removes a local list that was deleted remotely (without creating a dirty tombstone).
+    pub fn remove_remote_deleted_list(&self, id: &str) -> Result<(), String> {
+        let task_ids = self.task_ids_of(id)?;
+        self.conn()
+            .execute("DELETE FROM lists WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        self.drop_link(SyncEntity::List, id)?;
+        for task_id in task_ids {
+            self.drop_link(SyncEntity::Task, &task_id)?;
+        }
+        Ok(())
+    }
+
+    /// Removes a local task that was deleted remotely (without creating a dirty tombstone).
+    pub fn remove_remote_deleted_task(&self, id: &str) -> Result<(), String> {
+        self.conn()
+            .execute("DELETE FROM tasks WHERE id = ?1", params![id])
+            .map_err(|e| e.to_string())?;
+        self.drop_link(SyncEntity::Task, id)?;
+        Ok(())
+    }
+
+    /// All local list ids.
+    pub fn all_list_ids(&self) -> Result<Vec<String>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare("SELECT id FROM lists")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
     /// The ids of the tasks in a list.
-    fn task_ids_of(&self, list_id: &str) -> Result<Vec<String>, String> {
+    pub fn task_ids_of(&self, list_id: &str) -> Result<Vec<String>, String> {
         let conn = self.conn();
         let mut stmt = conn
             .prepare("SELECT id FROM tasks WHERE list_id = ?1")
@@ -702,17 +939,23 @@ impl Db {
     }
 
     /// Records that a local entity changed and still has to be pushed.
-    fn mark_dirty(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
+    fn mark_dirty(
+        &self,
+        entity: SyncEntity,
+        id: &str,
+        parent_id: Option<&str>,
+    ) -> Result<(), String> {
         let now = now_ms();
         self.conn()
             .execute(
-                "INSERT INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
-                 VALUES (?1, ?2, 1, 0, ?3)
+                "INSERT INTO sync_links (entity_type, entity_id, parent_id, dirty, deleted, updated_at)
+                 VALUES (?1, ?2, ?3, 1, 0, ?4)
                  ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                     parent_id = COALESCE(excluded.parent_id, sync_links.parent_id),
                      dirty = 1,
                      deleted = 0,
                      updated_at = excluded.updated_at",
-                params![entity.as_str(), id, now],
+                params![entity.as_str(), id, parent_id, now],
             )
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -722,17 +965,23 @@ impl Db {
     ///
     /// The tombstone keeps the remote id, so the remote object can be
     /// deleted, and keeps the pull from resurrecting the entity.
-    fn mark_deleted(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
+    fn mark_deleted(
+        &self,
+        entity: SyncEntity,
+        id: &str,
+        parent_id: Option<&str>,
+    ) -> Result<(), String> {
         let now = now_ms();
         self.conn()
             .execute(
-                "INSERT INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
-                 VALUES (?1, ?2, 1, 1, ?3)
+                "INSERT INTO sync_links (entity_type, entity_id, parent_id, dirty, deleted, updated_at)
+                 VALUES (?1, ?2, ?3, 1, 1, ?4)
                  ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                     parent_id = COALESCE(excluded.parent_id, sync_links.parent_id),
                      dirty = 1,
                      deleted = 1,
                      updated_at = excluded.updated_at",
-                params![entity.as_str(), id, now],
+                params![entity.as_str(), id, parent_id, now],
             )
             .map(|_| ())
             .map_err(|e| e.to_string())
@@ -742,9 +991,9 @@ impl Db {
     /// outbox learns that the change still has to be pushed.
     fn touch(&self, entity: SyncEntity, id: &str) -> Result<(), String> {
         let now = now_ms();
-        let table = match entity {
-            SyncEntity::List => "lists",
-            SyncEntity::Task => "tasks",
+        let (table, parent_id) = match entity {
+            SyncEntity::List => ("lists", None),
+            SyncEntity::Task => ("tasks", self.task_list_id(id)?),
         };
 
         self.conn()
@@ -755,7 +1004,7 @@ impl Db {
             .map(|_| ())
             .map_err(|e| e.to_string())?;
 
-        self.mark_dirty(entity, id)
+        self.mark_dirty(entity, id, parent_id.as_deref())
     }
 
     /// The outbox: every entity with local changes that are not pushed yet.
@@ -766,7 +1015,7 @@ impl Db {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-                "SELECT entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at
+                "SELECT entity_type, entity_id, parent_id, remote_id, dirty, deleted, updated_at, synced_at
                  FROM sync_links
                  WHERE dirty = 1
                  ORDER BY CASE entity_type WHEN 'list' THEN 0 ELSE 1 END, updated_at",
@@ -779,17 +1028,18 @@ impl Db {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, i64>(3)? != 0,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, i64>(4)? != 0,
-                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(5)? != 0,
                     row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
 
         let mut links = Vec::new();
         for row in rows {
-            let (entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at) =
+            let (entity_type, entity_id, parent_id, remote_id, dirty, deleted, updated_at, synced_at) =
                 row.map_err(|e| e.to_string())?;
             let Some(entity) = SyncEntity::parse(&entity_type) else {
                 continue;
@@ -797,6 +1047,7 @@ impl Db {
             links.push(SyncLink {
                 entity,
                 entity_id,
+                parent_id,
                 remote_id,
                 dirty,
                 deleted,
@@ -822,7 +1073,7 @@ impl Db {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-                "SELECT entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at
+                "SELECT entity_type, entity_id, parent_id, remote_id, dirty, deleted, updated_at, synced_at
                  FROM sync_links WHERE entity_type = ?1 AND entity_id = ?2",
             )
             .map_err(|e| e.to_string())?;
@@ -833,21 +1084,71 @@ impl Db {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, i64>(3)? != 0,
+                    row.get::<_, Option<String>>(3)?,
                     row.get::<_, i64>(4)? != 0,
-                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(5)? != 0,
                     row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
                 ))
             })
             .map_err(|e| e.to_string())?;
 
         match rows.next() {
             Some(row) => {
-                let (entity_type, entity_id, remote_id, dirty, deleted, updated_at, synced_at) =
+                let (entity_type, entity_id, parent_id, remote_id, dirty, deleted, updated_at, synced_at) =
                     row.map_err(|e| e.to_string())?;
                 Ok(Some(SyncLink {
                     entity: SyncEntity::parse(&entity_type).unwrap_or(entity),
                     entity_id,
+                    parent_id,
+                    remote_id,
+                    dirty,
+                    deleted,
+                    updated_at,
+                    synced_at,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Finds a sync link by its remote Google id.
+    pub fn link_by_remote_id(
+        &self,
+        entity: SyncEntity,
+        remote_id: &str,
+    ) -> Result<Option<SyncLink>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT entity_type, entity_id, parent_id, remote_id, dirty, deleted, updated_at, synced_at
+                 FROM sync_links WHERE entity_type = ?1 AND remote_id = ?2",
+            )
+            .map_err(|e| e.to_string())?;
+
+        let mut rows = stmt
+            .query_map(params![entity.as_str(), remote_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)? != 0,
+                    row.get::<_, i64>(5)? != 0,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+
+        match rows.next() {
+            Some(row) => {
+                let (entity_type, entity_id, parent_id, remote_id, dirty, deleted, updated_at, synced_at) =
+                    row.map_err(|e| e.to_string())?;
+                Ok(Some(SyncLink {
+                    entity: SyncEntity::parse(&entity_type).unwrap_or(entity),
+                    entity_id,
+                    parent_id,
                     remote_id,
                     dirty,
                     deleted,
@@ -1023,6 +1324,7 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
          CREATE TABLE IF NOT EXISTS sync_links (
              entity_type TEXT    NOT NULL,
              entity_id   TEXT    NOT NULL,
+             parent_id   TEXT,
              remote_id   TEXT,
              dirty       INTEGER NOT NULL DEFAULT 1,
              deleted     INTEGER NOT NULL DEFAULT 0,
@@ -1052,6 +1354,7 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         ],
     )?;
     ensure_columns(conn, "lists", &[("updated_at", "INTEGER NOT NULL DEFAULT 0")])?;
+    ensure_columns(conn, "sync_links", &[("parent_id", "TEXT")])?;
 
     // Everything that already existed when the sync was introduced has to be
     // queued once — otherwise the old lists and tasks would never reach
@@ -1061,8 +1364,12 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         "INSERT OR IGNORE INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
          SELECT 'list', id, 1, 0, updated_at FROM lists;
 
-         INSERT OR IGNORE INTO sync_links (entity_type, entity_id, dirty, deleted, updated_at)
-         SELECT 'task', id, 1, 0, updated_at FROM tasks;",
+         INSERT OR IGNORE INTO sync_links (entity_type, entity_id, parent_id, dirty, deleted, updated_at)
+         SELECT 'task', id, list_id, 1, 0, updated_at FROM tasks;
+
+         UPDATE sync_links
+         SET parent_id = (SELECT list_id FROM tasks WHERE tasks.id = sync_links.entity_id)
+         WHERE entity_type = 'task' AND parent_id IS NULL;",
     )
     .map_err(|e| e.to_string())?;
 
