@@ -27,6 +27,7 @@ Kirigami.Page {
                 if (text.trim().length > 0) {
                     dummyTaskModel.append({
                         title: text.trim(),
+                        description: "",
                         isCompleted: false
                     });
                     text = "";
@@ -77,26 +78,32 @@ Kirigami.Page {
 
             ListElement {
                 title: "Design user interface mockups"
+                description: "Create initial UI wireframes and visual specs for the task list and sidebar."
                 isCompleted: true
             }
             ListElement {
                 title: "Implement sidebar list navigation"
+                description: "Add list model, item delegate, and selection handling."
                 isCompleted: true
             }
             ListElement {
                 title: "Add color picker dialog"
+                description: "Design 10-color popup palette with custom native dialog option."
                 isCompleted: true
             }
             ListElement {
                 title: "Hook up task completion checkboxes"
+                description: "Persist checkbox states and apply strikethrough styling."
                 isCompleted: false
             }
             ListElement {
                 title: "Write unit tests for task models"
+                description: "Cover list creation, renaming, color changes, and task completion."
                 isCompleted: false
             }
             ListElement {
                 title: "Refactor Kirigami application styles"
+                description: "Ensure KDE HIG adherence and dark/light Breeze theme support."
                 isCompleted: false
             }
         }
