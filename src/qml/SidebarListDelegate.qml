@@ -39,6 +39,12 @@ QQC2.ItemDelegate {
 
     padding: Kirigami.Units.largeSpacing
 
+    highlighted: ListView.isCurrentItem
+
+    onClicked: {
+        ListView.view.currentIndex = delegateItem.index;
+    }
+
     onDoubleClicked: startEditing()
 
     contentItem: RowLayout {
@@ -117,7 +123,14 @@ QQC2.ItemDelegate {
 
             onClicked: {
                 if (ListView.view && ListView.view.model && typeof ListView.view.model.remove === "function") {
-                    ListView.view.model.remove(delegateItem.index);
+                    let view = ListView.view;
+                    let idx = delegateItem.index;
+                    view.model.remove(idx);
+                    if (view.currentIndex === idx) {
+                        view.currentIndex = -1;
+                    } else if (view.currentIndex > idx) {
+                        view.currentIndex -= 1;
+                    }
                 }
             }
         }
@@ -151,7 +164,14 @@ QQC2.ItemDelegate {
             icon.name: "edit-delete"
             onTriggered: {
                 if (ListView.view && ListView.view.model && typeof ListView.view.model.remove === "function") {
-                    ListView.view.model.remove(delegateItem.index);
+                    let view = ListView.view;
+                    let idx = delegateItem.index;
+                    view.model.remove(idx);
+                    if (view.currentIndex === idx) {
+                        view.currentIndex = -1;
+                    } else if (view.currentIndex > idx) {
+                        view.currentIndex -= 1;
+                    }
                 }
             }
         }

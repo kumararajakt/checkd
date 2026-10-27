@@ -10,6 +10,14 @@ Kirigami.ScrollablePage {
 
     title: ""
 
+    property alias count: navList.count
+    property alias currentIndex: navList.currentIndex
+    readonly property var currentItem: currentIndex >= 0 && currentIndex < navList.count && navList.model ? navList.model.get(currentIndex) : null
+
+    function focusNewList() {
+        addListField.forceActiveFocus();
+    }
+
     // ── Add list ─────────────────────────────────────────────────────────
 
     header: Kirigami.AbstractApplicationHeader {
@@ -36,6 +44,7 @@ Kirigami.ScrollablePage {
                             modelColor: "#3daee9"
                         });
                         text = "";
+                        navList.currentIndex = dummyModel.count - 1;
                     }
                 }
             }
@@ -47,6 +56,7 @@ Kirigami.ScrollablePage {
         id: navList
 
         anchors.fill: parent
+        currentIndex: -1
 
         model: ListModel {
             id: dummyModel

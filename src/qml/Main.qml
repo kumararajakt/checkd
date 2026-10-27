@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls as Controls
 import org.kde.kirigami as Kirigami
 
 Kirigami.ApplicationWindow {
@@ -19,13 +18,21 @@ Kirigami.ApplicationWindow {
         handleVisible: !root.wideScreen
         width: Kirigami.Units.gridUnit * 14
 
-        contentItem: SidebarView {}
+        contentItem: SidebarView {
+            id: sidebar
+        }
     }
 
-    pageStack.initialPage: Kirigami.Page {
-        Controls.Label {
-            anchors.centerIn: parent
-            text: qsTr("Hello World!")
+    pageStack.initialPage: TaskListPage {
+        selectedListIndex: sidebar.currentIndex
+        listsCount: sidebar.count
+        selectedList: sidebar.currentItem
+
+        onCreateListRequested: {
+            if (!sidebarDrawer.drawerOpen) {
+                sidebarDrawer.open();
+            }
+            sidebar.focusNewList();
         }
     }
 }

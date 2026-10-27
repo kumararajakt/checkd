@@ -16,6 +16,7 @@ ecm_target_qml_sources(checkd
     qml/SidebarView.qml
     qml/SidebarListDelegate.qml
     qml/ColorPickerPopup.qml
+    qml/TaskListPage.qml
 )
 
 target_link_libraries(checkd
