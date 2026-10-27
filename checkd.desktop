@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=CheckD
+Exec=checkd
+Icon=checkd
+Type=Application
+Terminal=false
+Categories=Utility
