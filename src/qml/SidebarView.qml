@@ -19,7 +19,7 @@ Kirigami.ScrollablePage {
 
             contentItem: Kirigami.ActionTextField {
                 id: addListField
-                placeholderText: qsTr("Add List")
+                placeholderText: qsTr("New List")
                 Layout.fillWidth: true
 
                 leftActions: [

@@ -37,14 +37,14 @@ QQC2.ItemDelegate {
 
     width: ListView.view ? ListView.view.width : implicitWidth
 
-    leftPadding: Kirigami.Units.largeSpacing
-    rightPadding: Kirigami.Units.smallSpacing
+    padding: Kirigami.Units.largeSpacing
 
     onDoubleClicked: startEditing()
 
     contentItem: RowLayout {
         spacing: Kirigami.Units.smallSpacing
 
+        // color rectange
         Rectangle {
             id: colorSwatch
             implicitWidth: 12
@@ -63,11 +63,13 @@ QQC2.ItemDelegate {
             }
         }
 
+        // simple space between color and label
         Item {
             implicitWidth: 4
             implicitHeight: 4
         }
 
+        // label
         QQC2.Label {
             visible: !delegateItem.isEditing
             text: delegateItem.label
@@ -75,6 +77,7 @@ QQC2.ItemDelegate {
             elide: Text.ElideRight
         }
 
+        // text field for inline editing
         QQC2.TextField {
             id: editField
             visible: delegateItem.isEditing
@@ -94,9 +97,29 @@ QQC2.ItemDelegate {
             }
         }
 
-        Item {
+        // delete icon
+        QQC2.ToolButton {
+            id: deleteBtn
             visible: !delegateItem.isEditing
-            Layout.fillWidth: true
+            icon.name: "edit-delete"
+            icon.width: Kirigami.Units.iconSizes.small
+            icon.height: Kirigami.Units.iconSizes.small
+            flat: true
+            implicitWidth: Kirigami.Units.iconSizes.medium
+            implicitHeight: Kirigami.Units.iconSizes.medium
+            opacity: delegateItem.hovered || deleteBtn.hovered ? 1.0 : 0.5
+            Behavior on opacity {
+                NumberAnimation { duration: Kirigami.Units.shortDuration }
+            }
+
+            QQC2.ToolTip.text: qsTr("Delete")
+            QQC2.ToolTip.visible: hovered
+
+            onClicked: {
+                if (ListView.view && ListView.view.model && typeof ListView.view.model.remove === "function") {
+                    ListView.view.model.remove(delegateItem.index);
+                }
+            }
         }
     }
 
@@ -139,7 +162,7 @@ QQC2.ItemDelegate {
         parent: QQC2.Overlay.overlay
         x: parent ? Math.round((parent.width - width) / 2) : 0
         y: parent ? Math.round((parent.height - height) / 2) : 0
-        onColorPicked: (newColor) => {
+        onColorPicked: newColor => {
             if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
                 ListView.view.model.setProperty(delegateItem.index, "modelColor", newColor);
             } else {
