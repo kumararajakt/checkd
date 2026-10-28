@@ -15,6 +15,7 @@ Kirigami.ScrollablePage {
     property alias count: navList.count
     property alias currentIndex: navList.currentIndex
     readonly property var currentItem: {
+        sidebarView._updateTrigger;
         return (currentIndex >= 0 && currentIndex < navList.count && navList.model)
             ? navList.model.get(currentIndex)
             : null;

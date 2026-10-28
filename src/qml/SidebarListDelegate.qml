@@ -12,6 +12,9 @@ QQC2.ItemDelegate {
     required property string label
     required property int index
 
+    readonly property ListView parentView: delegateItem.ListView.view
+    readonly property var listModel: parentView ? parentView.model : null
+
     property bool isEditing: false
 
     function startEditing() {
@@ -26,23 +29,46 @@ QQC2.ItemDelegate {
     function saveEdit(newText: string) {
         newText = newText.trim();
         if (newText.length > 0) {
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegateItem.index, "label", newText);
-            } else {
-                delegateItem.label = newText;
+            delegateItem.label = newText;
+            if (delegateItem.listModel && typeof delegateItem.listModel.setProperty === "function") {
+                delegateItem.listModel.setProperty(delegateItem.index, "label", newText);
             }
         }
         delegateItem.isEditing = false;
     }
 
-    width: ListView.view ? ListView.view.width : implicitWidth
+    function updateColor(newColor: string) {
+        delegateItem.modelColor = newColor;
+        if (delegateItem.listModel && typeof delegateItem.listModel.setProperty === "function") {
+            delegateItem.listModel.setProperty(delegateItem.index, "modelColor", newColor);
+        }
+    }
+
+    function removeThis() {
+        if (delegateItem.listModel && typeof delegateItem.listModel.remove === "function") {
+            let view = delegateItem.parentView;
+            let idx = delegateItem.index;
+            delegateItem.listModel.remove(idx);
+            if (view) {
+                if (view.currentIndex === idx) {
+                    view.currentIndex = -1;
+                } else if (view.currentIndex > idx) {
+                    view.currentIndex -= 1;
+                }
+            }
+        }
+    }
+
+    width: parentView ? parentView.width : implicitWidth
 
     padding: Kirigami.Units.largeSpacing
 
     highlighted: ListView.isCurrentItem
 
     onClicked: {
-        ListView.view.currentIndex = delegateItem.index;
+        if (parentView) {
+            parentView.currentIndex = delegateItem.index;
+        }
     }
 
     onDoubleClicked: startEditing()
@@ -56,7 +82,7 @@ QQC2.ItemDelegate {
             implicitWidth: 12
             implicitHeight: 12
             radius: 4
-            color: delegateItem.modelColor !== "" ? delegateItem.modelColor : "blue"
+            color: delegateItem.modelColor !== "" ? delegateItem.modelColor : "#3b82f6"
 
             MouseArea {
                 anchors.fill: parent
@@ -121,18 +147,7 @@ QQC2.ItemDelegate {
             QQC2.ToolTip.text: qsTr("Delete")
             QQC2.ToolTip.visible: hovered
 
-            onClicked: {
-                if (ListView.view && ListView.view.model && typeof ListView.view.model.remove === "function") {
-                    let view = ListView.view;
-                    let idx = delegateItem.index;
-                    view.model.remove(idx);
-                    if (view.currentIndex === idx) {
-                        view.currentIndex = -1;
-                    } else if (view.currentIndex > idx) {
-                        view.currentIndex -= 1;
-                    }
-                }
-            }
+            onClicked: delegateItem.removeThis()
         }
     }
 
@@ -162,18 +177,7 @@ QQC2.ItemDelegate {
         QQC2.MenuItem {
             text: qsTr("Delete")
             icon.name: "edit-delete"
-            onTriggered: {
-                if (ListView.view && ListView.view.model && typeof ListView.view.model.remove === "function") {
-                    let view = ListView.view;
-                    let idx = delegateItem.index;
-                    view.model.remove(idx);
-                    if (view.currentIndex === idx) {
-                        view.currentIndex = -1;
-                    } else if (view.currentIndex > idx) {
-                        view.currentIndex -= 1;
-                    }
-                }
-            }
+            onTriggered: delegateItem.removeThis()
         }
     }
 
@@ -183,11 +187,7 @@ QQC2.ItemDelegate {
         x: parent ? Math.round((parent.width - width) / 2) : 0
         y: parent ? Math.round((parent.height - height) / 2) : 0
         onColorPicked: newColor => {
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegateItem.index, "modelColor", newColor);
-            } else {
-                delegateItem.modelColor = newColor;
-            }
+            delegateItem.updateColor(newColor);
         }
     }
 }
