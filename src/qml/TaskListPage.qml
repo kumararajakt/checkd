@@ -10,19 +10,67 @@ Kirigami.Page {
     property int selectedListIndex: -1
     property int listsCount: 0
     property var selectedList: null
+    property bool showAddTask: false
+
+    onShowAddTaskChanged: {
+        addTaskAction.checked = root.showAddTask;
+        if (root.showAddTask) {
+            newTaskField.forceActiveFocus();
+        }
+    }
 
     signal createListRequested
 
     title: root.selectedList ? root.selectedList.label : ""
 
-    header: QQC2.ItemDelegate {
-        padding: 4
-        visible: root.listsCount > 0 && root.selectedListIndex >= 0
+    actions: [
+        Kirigami.Action {
+            id: addTaskAction
+            text: qsTr("Add Task")
+            icon.name: "list-add"
+            displayHint: Kirigami.DisplayHint.KeepVisible
+            checkable: true
+            checked: root.showAddTask
+            visible: root.listsCount > 0 && root.selectedListIndex >= 0
+            onTriggered: {
+                root.showAddTask = checked;
+            }
+        }
+    ]
 
-        Kirigami.ActionTextField {
+    header: QQC2.Control {
+        id: addTaskHeader
+        width: parent ? parent.width : 0
+        visible: root.listsCount > 0 && root.selectedListIndex >= 0 && root.showAddTask
+        height: visible ? implicitHeight : 0
+        leftPadding: Kirigami.Units.largeSpacing
+        rightPadding: Kirigami.Units.largeSpacing
+        topPadding: Kirigami.Units.mediumSpacing
+        bottomPadding: Kirigami.Units.mediumSpacing
+
+        onVisibleChanged: {
+            if (visible) {
+                newTaskField.forceActiveFocus();
+            }
+        }
+
+        contentItem: Kirigami.ActionTextField {
             id: newTaskField
-            width: parent.width
             placeholderText: qsTr("  + New Task")
+            rightActions: [
+                Kirigami.Action {
+                    icon.name: "dialog-close"
+                    tooltip: qsTr("Close")
+                    onTriggered: {
+                        newTaskField.text = "";
+                        root.showAddTask = false;
+                    }
+                }
+            ]
+            Keys.onEscapePressed: {
+                newTaskField.text = "";
+                root.showAddTask = false;
+            }
             onAccepted: {
                 if (text.trim().length > 0) {
                     dummyTaskModel.append({
@@ -144,6 +192,14 @@ Kirigami.Page {
             icon.name: "checkbox"
             text: qsTr("No tasks")
             explanation: qsTr("No Tasks Found.")
+
+            helpfulAction: Kirigami.Action {
+                icon.name: "list-add"
+                text: qsTr("Add Task")
+                onTriggered: {
+                    root.showAddTask = true;
+                }
+            }
         }
     }
 }
