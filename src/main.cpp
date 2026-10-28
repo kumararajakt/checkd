@@ -7,11 +7,18 @@
 #include <KLocalizedString>
 #include <KIconTheme>
 
+#include "databasemanager.h"
+#include "sidebarlistmodel.h"
+
 int main(int argc, char *argv[])
 {
     KIconTheme::initTheme();
     QApplication app(argc, argv);
+    app.setOrganizationName(QStringLiteral("kumar"));
+    app.setApplicationName(QStringLiteral("checkd"));
 
+    DatabaseManager::instance().initialize();
+    qmlRegisterType<SidebarListModel>("org.checkd", 1, 0, "SidebarListModel");
 
     QApplication::setStyle(QStringLiteral("breeze"));
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {

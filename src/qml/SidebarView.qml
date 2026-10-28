@@ -4,15 +4,34 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.checkd
 
 Kirigami.ScrollablePage {
     id: sidebarView
 
     title: ""
 
+    property int _updateTrigger: 0
     property alias count: navList.count
     property alias currentIndex: navList.currentIndex
-    readonly property var currentItem: currentIndex >= 0 && currentIndex < navList.count && navList.model ? navList.model.get(currentIndex) : null
+    readonly property var currentItem: {
+        return (currentIndex >= 0 && currentIndex < navList.count && navList.model)
+            ? navList.model.get(currentIndex)
+            : null;
+    }
+
+    Connections {
+        target: navList.model
+        function onDataChanged() {
+            sidebarView._updateTrigger++;
+        }
+        function onModelReset() {
+            sidebarView._updateTrigger++;
+        }
+        function onCountChanged() {
+            sidebarView._updateTrigger++;
+        }
+    }
 
     function focusNewList() {
         addListField.forceActiveFocus();
@@ -39,12 +58,9 @@ Kirigami.ScrollablePage {
 
                 onAccepted: {
                     if (text.trim().length > 0) {
-                        dummyModel.append({
-                            label: text.trim(),
-                            modelColor: "#3daee9"
-                        });
+                        sidebarModel.addList(text.trim());
                         text = "";
-                        navList.currentIndex = dummyModel.count - 1;
+                        navList.currentIndex = navList.count - 1;
                     }
                 }
             }
@@ -58,33 +74,8 @@ Kirigami.ScrollablePage {
         anchors.fill: parent
         currentIndex: -1
 
-        model: ListModel {
-            id: dummyModel
-
-            ListElement {
-                label: "Inbox"
-                modelColor: "#3daee9"
-            }
-            ListElement {
-                label: "Personal"
-                modelColor: "#2ecc71"
-            }
-            ListElement {
-                label: "Work"
-                modelColor: "#e74c3c"
-            }
-            ListElement {
-                label: "Shopping"
-                modelColor: "#f39c12"
-            }
-            ListElement {
-                label: "Projects"
-                modelColor: "#9b59b6"
-            }
-            ListElement {
-                label: "Reading List"
-                modelColor: "#1abc9c"
-            }
+        model: SidebarListModel {
+            id: sidebarModel
         }
 
         delegate: SidebarListDelegate {}

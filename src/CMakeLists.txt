@@ -8,6 +8,15 @@ ecm_add_qml_module(checkd
 target_sources(checkd
     PRIVATE
     main.cpp
+    databasemanager.cpp
+    databasemanager.h
+    sidebarlistmodel.cpp
+    sidebarlistmodel.h
+)
+
+target_compile_options(checkd
+    PRIVATE
+    -fexceptions
 )
 
 ecm_target_qml_sources(checkd
@@ -28,6 +37,7 @@ target_link_libraries(checkd
     Qt6::Gui
     Qt6::QuickControls2
     Qt6::Widgets
+    Qt6::Sql
     KF6::I18n
     KF6::CoreAddons
     KF6::IconThemes

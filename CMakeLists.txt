@@ -37,6 +37,7 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 add_subdirectory(3rdparty/AsyncSql)
 
 add_subdirectory(src)
+add_subdirectory(tests)
 
 install(PROGRAMS checkd.desktop DESTINATION ${KDE_INSTALL_APPDIR})
 
