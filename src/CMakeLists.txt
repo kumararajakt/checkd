@@ -12,6 +12,8 @@ target_sources(checkd
     databasemanager.h
     sidebarlistmodel.cpp
     sidebarlistmodel.h
+    tasklistmodel.cpp
+    tasklistmodel.h
 )
 
 target_compile_options(checkd

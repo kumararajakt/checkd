@@ -18,8 +18,23 @@ QQC2.ItemDelegate {
     required property string repeatConfig
     required property int index
 
+    readonly property ListView parentView: delegate.ListView.view
+    readonly property var taskModel: parentView ? parentView.model : null
+
     property bool expanded: false
     property bool isEditing: false
+
+    function setModelProperty(propName: string, value: var) {
+        if (delegate.taskModel && typeof delegate.taskModel.setProperty === "function") {
+            delegate.taskModel.setProperty(delegate.index, propName, value);
+        }
+    }
+
+    function removeThis() {
+        if (delegate.taskModel && typeof delegate.taskModel.remove === "function") {
+            delegate.taskModel.remove(delegate.index);
+        }
+    }
 
     function startEditing() {
         isEditing = true;
@@ -33,11 +48,8 @@ QQC2.ItemDelegate {
     function saveEdit(newText: string) {
         newText = newText.trim();
         if (newText.length > 0) {
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegate.index, "title", newText);
-            } else {
-                delegate.title = newText;
-            }
+            delegate.title = newText;
+            delegate.setModelProperty("title", newText);
         }
         delegate.isEditing = false;
     }
@@ -225,19 +237,15 @@ QQC2.ItemDelegate {
             cfg.startDate = formattedNextDate;
             let cfgStr = JSON.stringify(cfg);
             delegate.repeatConfig = cfgStr;
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegate.index, "repeatConfig", cfgStr);
-            }
+            delegate.setModelProperty("repeatConfig", cfgStr);
         }
         delegate.dueDate = formattedNextDate;
-        if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-            ListView.view.model.setProperty(delegate.index, "dueDate", formattedNextDate);
-            ListView.view.model.setProperty(delegate.index, "isCompleted", false);
-        }
+        delegate.setModelProperty("dueDate", formattedNextDate);
+        delegate.setModelProperty("isCompleted", false);
         checkBox.checked = false;
     }
 
-    width: ListView.view ? ListView.view.width : implicitWidth
+    width: parentView ? parentView.width : implicitWidth
 
     onClicked: {
         if (!isEditing) {
@@ -262,11 +270,8 @@ QQC2.ItemDelegate {
                     if (checked && delegate.repeatRule !== "") {
                         delegate.advanceToNextOccurrence();
                     } else {
-                        if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                            ListView.view.model.setProperty(delegate.index, "isCompleted", checked);
-                        } else {
-                            delegate.isCompleted = checked;
-                        }
+                        delegate.isCompleted = checked;
+                        delegate.setModelProperty("isCompleted", checked);
                     }
                 }
             }
@@ -415,11 +420,8 @@ QQC2.ItemDelegate {
                     QQC2.ToolTip.text: qsTr("Clear Time")
                     QQC2.ToolTip.visible: hovered
                     onClicked: {
-                        if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                            ListView.view.model.setProperty(delegate.index, "dueTime", "");
-                        } else {
-                            delegate.dueTime = "";
-                        }
+                        delegate.dueTime = "";
+                        delegate.setModelProperty("dueTime", "");
                     }
                 }
 
@@ -430,13 +432,10 @@ QQC2.ItemDelegate {
                     QQC2.ToolTip.text: qsTr("Clear Due Date")
                     QQC2.ToolTip.visible: hovered
                     onClicked: {
-                        if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                            ListView.view.model.setProperty(delegate.index, "dueDate", "");
-                            ListView.view.model.setProperty(delegate.index, "dueTime", "");
-                        } else {
-                            delegate.dueDate = "";
-                            delegate.dueTime = "";
-                        }
+                        delegate.dueDate = "";
+                        delegate.dueTime = "";
+                        delegate.setModelProperty("dueDate", "");
+                        delegate.setModelProperty("dueTime", "");
                     }
                 }
             }
@@ -452,9 +451,7 @@ QQC2.ItemDelegate {
                 selectByMouse: true
 
                 onEditingFinished: {
-                    if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                        ListView.view.model.setProperty(delegate.index, "description", text);
-                    }
+                    delegate.setModelProperty("description", text);
                 }
             }
 
@@ -485,10 +482,8 @@ QQC2.ItemDelegate {
                     onClicked: {
                         delegate.repeatRule = "";
                         delegate.repeatConfig = "";
-                        if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                            ListView.view.model.setProperty(delegate.index, "repeatRule", "");
-                            ListView.view.model.setProperty(delegate.index, "repeatConfig", "");
-                        }
+                        delegate.setModelProperty("repeatRule", "");
+                        delegate.setModelProperty("repeatConfig", "");
                     }
                 }
             }
@@ -512,11 +507,7 @@ QQC2.ItemDelegate {
         QQC2.MenuItem {
             text: qsTr("Delete")
             icon.name: "edit-delete"
-            onTriggered: {
-                if (ListView.view && ListView.view.model && typeof ListView.view.model.remove === "function") {
-                    ListView.view.model.remove(delegate.index);
-                }
-            }
+            onTriggered: delegate.removeThis()
         }
     }
 
@@ -530,19 +521,13 @@ QQC2.ItemDelegate {
         onAccepted: {
             let d = datePopup.value;
             let formatted = Qt.formatDate(d, "yyyy-MM-dd");
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegate.index, "dueDate", formatted);
-            } else {
-                delegate.dueDate = formatted;
-            }
+            delegate.dueDate = formatted;
+            delegate.setModelProperty("dueDate", formatted);
             datePopup.close();
         }
         onReset: {
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegate.index, "dueDate", "");
-            } else {
-                delegate.dueDate = "";
-            }
+            delegate.dueDate = "";
+            delegate.setModelProperty("dueDate", "");
         }
     }
 
@@ -555,18 +540,12 @@ QQC2.ItemDelegate {
         onAccepted: {
             let t = timePopup.value;
             let formattedTime = Qt.formatTime(t, "hh:mm");
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegate.index, "dueTime", formattedTime);
-            } else {
-                delegate.dueTime = formattedTime;
-            }
+            delegate.dueTime = formattedTime;
+            delegate.setModelProperty("dueTime", formattedTime);
         }
         onReset: {
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegate.index, "dueTime", "");
-            } else {
-                delegate.dueTime = "";
-            }
+            delegate.dueTime = "";
+            delegate.setModelProperty("dueTime", "");
         }
     }
 
@@ -579,21 +558,15 @@ QQC2.ItemDelegate {
             delegate.repeatRule = summary;
             let cfgStr = JSON.stringify(config);
             delegate.repeatConfig = cfgStr;
+            delegate.setModelProperty("repeatRule", summary);
+            delegate.setModelProperty("repeatConfig", cfgStr);
             if (config && config.startDate) {
                 delegate.dueDate = config.startDate;
+                delegate.setModelProperty("dueDate", config.startDate);
             }
             if (config && config.time) {
                 delegate.dueTime = config.time;
-            }
-            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
-                ListView.view.model.setProperty(delegate.index, "repeatRule", summary);
-                ListView.view.model.setProperty(delegate.index, "repeatConfig", cfgStr);
-                if (config && config.startDate) {
-                    ListView.view.model.setProperty(delegate.index, "dueDate", config.startDate);
-                }
-                if (config && config.time) {
-                    ListView.view.model.setProperty(delegate.index, "dueTime", config.time);
-                }
+                delegate.setModelProperty("dueTime", config.time);
             }
         }
     }

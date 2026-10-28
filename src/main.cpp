@@ -9,6 +9,7 @@
 
 #include "databasemanager.h"
 #include "sidebarlistmodel.h"
+#include "tasklistmodel.h"
 
 int main(int argc, char *argv[])
 {
@@ -19,6 +20,7 @@ int main(int argc, char *argv[])
 
     DatabaseManager::instance().initialize();
     qmlRegisterType<SidebarListModel>("org.checkd", 1, 0, "SidebarListModel");
+    qmlRegisterType<TaskListModel>("org.checkd", 1, 0, "TaskListModel");
 
     QApplication::setStyle(QStringLiteral("breeze"));
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
