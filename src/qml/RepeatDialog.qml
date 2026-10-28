@@ -17,6 +17,7 @@ Kirigami.Dialog {
     property var monthDay: new Date().getDate()
     property int monthOrdinalIndex: 0
     property int monthWeekdayIndex: new Date().getDay()
+    property int yearInterval: 1
     property string repeatTime: "12:00"
     property string startDate: Qt.formatDate(new Date(), "yyyy-MM-dd")
     property string endType: "never" // "never" | "on" | "after"
@@ -109,7 +110,8 @@ Kirigami.Dialog {
                     }
                 } else {
                     config.type = "year";
-                    summary = qsTr("Yearly");
+                    config.interval = yearSpinBox.value;
+                    summary = yearSpinBox.value === 1 ? qsTr("Yearly") : qsTr("Every %1 years").arg(yearSpinBox.value);
                 }
 
                 if (root.repeatTime !== "") {
@@ -377,10 +379,33 @@ Kirigami.Dialog {
                 }
             }
 
-            Kirigami.PlaceholderMessage {
-                text: qsTr("Yearly Repeat")
-                explanation: qsTr("Configure repeat every N years.")
-                icon.name: "view-calendar"
+            // ── Year Tab ────────────────────────────────────────────────────
+            ColumnLayout {
+                id: yearTab
+                spacing: Kirigami.Units.mediumSpacing
+                Layout.fillWidth: true
+
+                RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.Label {
+                        text: qsTr("Every")
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 3
+                    }
+
+                    QQC2.SpinBox {
+                        id: yearSpinBox
+                        from: 1
+                        to: 100
+                        value: root.yearInterval
+                        editable: true
+                        onValueModified: root.yearInterval = value
+                    }
+
+                    QQC2.Label {
+                        text: yearSpinBox.value === 1 ? qsTr("year") : qsTr("years")
+                    }
+                }
             }
         }
 
