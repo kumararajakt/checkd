@@ -1,0 +1,3 @@
+[submodule "3rdparty/AsyncSql"]
+	path = 3rdparty/AsyncSql
+	url = https://github.com/kumararajakt/AsyncSql

@@ -19,6 +19,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     Gui
     QuickControls2
     Widgets
+    Sql
 )
 
 find_package(KF6 REQUIRED COMPONENTS
@@ -30,6 +31,10 @@ find_package(KF6 REQUIRED COMPONENTS
 )
 
 ecm_find_qmlmodule(org.kde.kirigami REQUIRED)
+
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+add_subdirectory(3rdparty/AsyncSql)
 
 add_subdirectory(src)
 
