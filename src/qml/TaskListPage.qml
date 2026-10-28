@@ -125,9 +125,15 @@ Kirigami.Page {
 
         delegate: TaskItemDelegate {}
 
+        QQC2.BusyIndicator {
+            anchors.centerIn: parent
+            running: taskModel.busy
+            visible: running
+        }
+
         Kirigami.PlaceholderMessage {
             anchors.centerIn: parent
-            visible: taskList.count === 0
+            visible: taskList.count === 0 && !taskModel.busy
             icon.name: "checkbox"
             text: qsTr("No tasks")
             explanation: qsTr("No Tasks Found.")

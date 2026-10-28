@@ -386,12 +386,14 @@ QQC2.ItemDelegate {
                     icon.name: "view-calendar"
                     text: delegate.dueDate !== "" ? qsTr("Due: %1").arg(delegate.dueDate) : qsTr("Set Due Date")
                     onClicked: {
+                        datePopupLoader.active = true;
+                        let popup = datePopupLoader.item;
                         if (delegate.dueDate !== "") {
-                            datePopup.value = new Date(delegate.dueDate);
+                            popup.value = new Date(delegate.dueDate);
                         } else {
-                            datePopup.value = new Date();
+                            popup.value = new Date();
                         }
-                        datePopup.open();
+                        popup.open();
                     }
                 }
 
@@ -401,6 +403,8 @@ QQC2.ItemDelegate {
                     icon.name: "preferences-system-time"
                     text: delegate.dueTime !== "" ? delegate.dueTime : qsTr("Set Time")
                     onClicked: {
+                        timePopupLoader.active = true;
+                        let popup = timePopupLoader.item;
                         let now = new Date();
                         if (delegate.dueTime !== "") {
                             let parts = delegate.dueTime.split(":");
@@ -408,8 +412,8 @@ QQC2.ItemDelegate {
                                 now.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0);
                             }
                         }
-                        timePopup.value = now;
-                        timePopup.open();
+                        popup.value = now;
+                        popup.open();
                     }
                 }
 
@@ -464,12 +468,14 @@ QQC2.ItemDelegate {
                     text: delegate.repeatRule !== "" ? delegate.repeatRule : qsTr("Repeat")
                     icon.name: "media-playlist-repeat"
                     onClicked: {
+                        repeatDialogLoader.active = true;
+                        let dlg = repeatDialogLoader.item;
                         if (delegate.repeatConfig && delegate.repeatConfig.length > 0) {
                             try {
-                                repeatDialog.loadConfig(JSON.parse(delegate.repeatConfig));
+                                dlg.loadConfig(JSON.parse(delegate.repeatConfig));
                             } catch (e) {}
                         }
-                        repeatDialog.open();
+                        dlg.open();
                     }
                 }
 
@@ -492,81 +498,95 @@ QQC2.ItemDelegate {
 
     TapHandler {
         acceptedButtons: Qt.RightButton
-        onTapped: contextMenu.popup()
-    }
-
-    QQC2.Menu {
-        id: contextMenu
-
-        QQC2.MenuItem {
-            text: qsTr("Edit")
-            icon.name: "document-edit"
-            onTriggered: delegate.startEditing()
-        }
-
-        QQC2.MenuItem {
-            text: qsTr("Delete")
-            icon.name: "edit-delete"
-            onTriggered: delegate.removeThis()
+        onTapped: {
+            contextMenuLoader.active = true;
+            contextMenuLoader.item.popup();
         }
     }
 
-    DateTime.DatePopup {
-        id: datePopup
-        parent: QQC2.Overlay.overlay
-        x: parent ? Math.round((parent.width - width) / 2) : 0
-        y: parent ? Math.round((parent.height - height) / 2) : 0
-        resettable: true
-        autoAccept: true
-        onAccepted: {
-            let d = datePopup.value;
-            let formatted = Qt.formatDate(d, "yyyy-MM-dd");
-            delegate.dueDate = formatted;
-            delegate.setModelProperty("dueDate", formatted);
-            datePopup.close();
-        }
-        onReset: {
-            delegate.dueDate = "";
-            delegate.setModelProperty("dueDate", "");
-        }
-    }
-
-    DateTime.TimePopup {
-        id: timePopup
-        parent: QQC2.Overlay.overlay
-        x: parent ? Math.round((parent.width - width) / 2) : 0
-        y: parent ? Math.round((parent.height - height) / 2) : 0
-        resettable: true
-        onAccepted: {
-            let t = timePopup.value;
-            let formattedTime = Qt.formatTime(t, "hh:mm");
-            delegate.dueTime = formattedTime;
-            delegate.setModelProperty("dueTime", formattedTime);
-        }
-        onReset: {
-            delegate.dueTime = "";
-            delegate.setModelProperty("dueTime", "");
-        }
-    }
-
-    RepeatDialog {
-        id: repeatDialog
-        parent: QQC2.Overlay.overlay
-        x: parent ? Math.round((parent.width - width) / 2) : 0
-        y: parent ? Math.round((parent.height - height) / 2) : 0
-        onRepeatSaved: (summary, config) => {
-            delegate.repeatRule = summary;
-            let cfgStr = JSON.stringify(config);
-            delegate.repeatConfig = cfgStr;
-            delegate.setModelProperty("repeatRule", summary);
-            delegate.setModelProperty("repeatConfig", cfgStr);
-            if (config && config.startDate) {
-                delegate.dueDate = config.startDate;
-                delegate.setModelProperty("dueDate", config.startDate);
+    Loader {
+        id: contextMenuLoader
+        active: false
+        sourceComponent: QQC2.Menu {
+            QQC2.MenuItem {
+                text: qsTr("Edit")
+                icon.name: "document-edit"
+                onTriggered: delegate.startEditing()
             }
-            if (config && config.time) {
-                delegate.dueTime = config.time;
-                delegate.setModelProperty("dueTime", config.time);
+
+            QQC2.MenuItem {
+                text: qsTr("Delete")
+                icon.name: "edit-delete"
+                onTriggered: delegate.removeThis()
+            }
+        }
+    }
+
+    Loader {
+        id: datePopupLoader
+        active: false
+        sourceComponent: DateTime.DatePopup {
+            parent: QQC2.Overlay.overlay
+            x: parent ? Math.round((parent.width - width) / 2) : 0
+            y: parent ? Math.round((parent.height - height) / 2) : 0
+            resettable: true
+            autoAccept: true
+            onAccepted: {
+                let d = value;
+                let formatted = Qt.formatDate(d, "yyyy-MM-dd");
+                delegate.dueDate = formatted;
+                delegate.setModelProperty("dueDate", formatted);
+                close();
+            }
+            onReset: {
+                delegate.dueDate = "";
+                delegate.setModelProperty("dueDate", "");
+            }
+        }
+    }
+
+    Loader {
+        id: timePopupLoader
+        active: false
+        sourceComponent: DateTime.TimePopup {
+            parent: QQC2.Overlay.overlay
+            x: parent ? Math.round((parent.width - width) / 2) : 0
+            y: parent ? Math.round((parent.height - height) / 2) : 0
+            resettable: true
+            onAccepted: {
+                let t = value;
+                let formattedTime = Qt.formatTime(t, "hh:mm");
+                delegate.dueTime = formattedTime;
+                delegate.setModelProperty("dueTime", formattedTime);
+            }
+            onReset: {
+                delegate.dueTime = "";
+                delegate.setModelProperty("dueTime", "");
+            }
+        }
+    }
+
+    Loader {
+        id: repeatDialogLoader
+        active: false
+        sourceComponent: RepeatDialog {
+            parent: QQC2.Overlay.overlay
+            x: parent ? Math.round((parent.width - width) / 2) : 0
+            y: parent ? Math.round((parent.height - height) / 2) : 0
+            onRepeatSaved: (summary, config) => {
+                delegate.repeatRule = summary;
+                let cfgStr = JSON.stringify(config);
+                delegate.repeatConfig = cfgStr;
+                delegate.setModelProperty("repeatRule", summary);
+                delegate.setModelProperty("repeatConfig", cfgStr);
+                if (config && config.startDate) {
+                    delegate.dueDate = config.startDate;
+                    delegate.setModelProperty("dueDate", config.startDate);
+                }
+                if (config && config.time) {
+                    delegate.dueTime = config.time;
+                    delegate.setModelProperty("dueTime", config.time);
+                }
             }
         }
     }

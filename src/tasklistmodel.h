@@ -68,9 +68,11 @@ Q_SIGNALS:
     void listIdChanged();
     void countChanged();
 
+public Q_SLOTS:
+    bool getResults(const AsyncSql::QueryResult &result) override;
+
 protected:
     void onInit(QSqlDatabase &db) override;
-    bool getResults(const AsyncSql::QueryResult &result) override;
 
 private:
     static QString formatRepeatSummary(const QString &repeatJson);

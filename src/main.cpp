@@ -13,6 +13,7 @@
 
 int main(int argc, char *argv[])
 {
+    qSetMessagePattern(QStringLiteral("%{time hh:mm:ss.zzz} [%{type}] %{message}"));
     KIconTheme::initTheme();
     QApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("kumar"));
