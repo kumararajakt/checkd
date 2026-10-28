@@ -18,6 +18,7 @@ ecm_target_qml_sources(checkd
     qml/ColorPickerPopup.qml
     qml/TaskListPage.qml
     qml/TaskItemDelegate.qml
+    qml/RepeatDialog.qml
 )
 
 target_link_libraries(checkd

@@ -18,6 +18,7 @@ QQC2.ItemDelegate {
 
     property bool expanded: false
     property bool isEditing: false
+    property string repeatRule: ""
 
     function startEditing() {
         isEditing = true;
@@ -255,6 +256,16 @@ QQC2.ItemDelegate {
                     }
                 }
             }
+
+
+            QQC2.Button {
+                id: repeatBtn
+                text: delegate.repeatRule !== "" ? delegate.repeatRule : qsTr("Repeat")
+                icon.name: "media-playlist-repeat"
+                onClicked: {
+                    repeatDialog.open();
+                }
+            }
         }
     }
 
@@ -323,6 +334,19 @@ QQC2.ItemDelegate {
                 ListView.view.model.setProperty(delegate.index, "dueTime", "");
             } else {
                 delegate.dueTime = "";
+            }
+        }
+    }
+
+    RepeatDialog {
+        id: repeatDialog
+        parent: QQC2.Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+        onRepeatSaved: (summary, config) => {
+            delegate.repeatRule = summary;
+            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
+                ListView.view.model.setProperty(delegate.index, "repeatRule", summary);
             }
         }
     }
