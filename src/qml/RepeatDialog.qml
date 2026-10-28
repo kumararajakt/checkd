@@ -6,7 +6,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.kirigamiaddons.dateandtime as DateTime
 
-Kirigami.Dialog {
+QQC2.Popup {
     id: root
 
     property int dayInterval: 1
@@ -26,103 +26,66 @@ Kirigami.Dialog {
 
     signal repeatSaved(string summary, var config)
 
+    function loadConfig(config) {
+        if (!config) {
+            return;
+        }
+        if (config.type === "day") {
+            tabBar.currentIndex = 0;
+            if (config.interval !== undefined) {
+                root.dayInterval = config.interval;
+            }
+        } else if (config.type === "week") {
+            tabBar.currentIndex = 1;
+            if (config.interval !== undefined) {
+                root.weekInterval = config.interval;
+            }
+            if (config.days !== undefined) {
+                root.selectedDays = config.days;
+            }
+        } else if (config.type === "month") {
+            tabBar.currentIndex = 2;
+            if (config.interval !== undefined) {
+                root.monthInterval = config.interval;
+            }
+            if (config.monthType !== undefined) {
+                root.monthType = config.monthType;
+            }
+            if (config.day !== undefined) {
+                root.monthDay = config.day;
+            }
+        } else if (config.type === "year") {
+            tabBar.currentIndex = 3;
+            if (config.interval !== undefined) {
+                root.yearInterval = config.interval;
+            }
+        }
+        if (config.time !== undefined) {
+            root.repeatTime = config.time;
+        }
+        if (config.startDate !== undefined) {
+            root.startDate = config.startDate;
+        }
+        if (config.endType !== undefined) {
+            root.endType = config.endType;
+        }
+        if (config.endDate !== undefined) {
+            root.endDate = config.endDate;
+        }
+        if (config.endOccurrences !== undefined) {
+            root.endOccurrences = config.endOccurrences;
+        }
+    }
+
     modal: true
     focus: true
     dim: true
-    closePolicy: QQC2.Popup.CloseOnEscape | QQC2.Popup.CloseOnPressOutside
+    closePolicy: QQC2.Popup.CloseOnEscape
 
     implicitWidth: parent ? Math.min(parent.width - Kirigami.Units.gridUnit * 2, 430) : 430
     padding: Kirigami.Units.largeSpacing
 
-    title: qsTr("Repeat")
-
-    // ── Footer Buttons ──────────────────────────────────────────────────
-    footer: RowLayout {
-        Layout.fillWidth: true
-        Layout.topMargin: Kirigami.Units.smallSpacing
-
-        Item {
-            Layout.fillWidth: true
-        }
-
-        QQC2.Button {
-            text: qsTr("Cancel")
-            onClicked: root.close()
-        }
-
-        QQC2.Button {
-            text: qsTr("Save")
-            highlighted: true
-            onClicked: {
-                let summary = "";
-                let config = {
-                    time: root.repeatTime,
-                    startDate: root.startDate,
-                    endType: root.endType,
-                    endDate: root.endDate,
-                    endOccurrences: root.endOccurrences
-                };
-
-                if (tabBar.currentIndex === 0) {
-                    config.type = "day";
-                    config.interval = daySpinBox.value;
-                    summary = daySpinBox.value === 1 ? qsTr("Daily") : qsTr("Every %1 days").arg(daySpinBox.value);
-                } else if (tabBar.currentIndex === 1) {
-                    config.type = "week";
-                    config.interval = weekSpinBox.value;
-                    let dayNames = [qsTr("Sun"), qsTr("Mon"), qsTr("Tue"), qsTr("Wed"), qsTr("Thu"), qsTr("Fri"), qsTr("Sat")];
-                    let sortedDays = [...root.selectedDays].sort((a, b) => a - b);
-                    config.days = sortedDays;
-                    let daysStr = sortedDays.map(d => dayNames[d]).join(", ");
-                    if (weekSpinBox.value === 1) {
-                        summary = daysStr ? qsTr("Weekly on %1").arg(daysStr) : qsTr("Weekly");
-                    } else {
-                        summary = daysStr ? qsTr("Every %1 weeks on %2").arg(weekSpinBox.value).arg(daysStr) : qsTr("Every %1 weeks").arg(weekSpinBox.value);
-                    }
-                } else if (tabBar.currentIndex === 2) {
-                    config.type = "month";
-                    config.interval = monthSpinBox.value;
-                    config.monthType = root.monthType;
-                    if (root.monthType === "day") {
-                        config.day = root.monthDay;
-                        let isLastDay = (monthDayCombo.currentIndex === 31 || root.monthDay === qsTr("last day") || root.monthDay === "last day");
-                        if (isLastDay) {
-                            if (monthSpinBox.value === 1) {
-                                summary = qsTr("Monthly on the last day");
-                            } else {
-                                summary = qsTr("Every %1 months on the last day").arg(monthSpinBox.value);
-                            }
-                        } else {
-                            if (monthSpinBox.value === 1) {
-                                summary = qsTr("Monthly on day %1").arg(root.monthDay);
-                            } else {
-                                summary = qsTr("Every %1 months on day %2").arg(monthSpinBox.value).arg(root.monthDay);
-                            }
-                        }
-                    } else {
-                        config.ordinal = monthOrdinalCombo.currentText;
-                        config.weekday = monthWeekdayCombo.currentText;
-                        if (monthSpinBox.value === 1) {
-                            summary = qsTr("Monthly on the %1 %2").arg(config.ordinal).arg(config.weekday);
-                        } else {
-                            summary = qsTr("Every %1 months on the %2 %3").arg(monthSpinBox.value).arg(config.ordinal).arg(config.weekday);
-                        }
-                    }
-                } else {
-                    config.type = "year";
-                    config.interval = yearSpinBox.value;
-                    summary = yearSpinBox.value === 1 ? qsTr("Yearly") : qsTr("Every %1 years").arg(yearSpinBox.value);
-                }
-
-                if (root.repeatTime !== "") {
-                    summary += " " + qsTr("at %1").arg(root.repeatTime);
-                }
-
-                root.repeatSaved(summary, config);
-                root.close();
-            }
-        }
-    }
+    // title: qsTr("Repeat")
 
     contentItem: ColumnLayout {
         id: mainColumn
@@ -451,7 +414,14 @@ Kirigami.Dialog {
                 text: root.startDate
                 onClicked: {
                     if (root.startDate !== "") {
-                        startDatePopup.value = new Date(root.startDate);
+                        let parts = root.startDate.split("-");
+                        if (parts.length === 3) {
+                            startDatePopup.value = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                        } else {
+                            startDatePopup.value = new Date(root.startDate);
+                        }
+                    } else {
+                        startDatePopup.value = new Date();
                     }
                     startDatePopup.open();
                 }
@@ -498,7 +468,14 @@ Kirigami.Dialog {
                 text: root.endDate
                 onClicked: {
                     if (root.endDate !== "") {
-                        endDatePopup.value = new Date(root.endDate);
+                        let parts = root.endDate.split("-");
+                        if (parts.length === 3) {
+                            endDatePopup.value = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+                        } else {
+                            endDatePopup.value = new Date(root.endDate);
+                        }
+                    } else {
+                        endDatePopup.value = new Date();
                     }
                     endDatePopup.open();
                 }
@@ -533,12 +510,103 @@ Kirigami.Dialog {
                 text: occurrencesSpinBox.value === 1 ? qsTr("occurrence") : qsTr("occurrences")
             }
         }
+
+        Kirigami.Separator {}
+
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+
+            Item {
+                Layout.fillWidth: true
+            }
+
+            QQC2.Button {
+                text: qsTr("Cancel")
+                onClicked: root.close()
+            }
+
+            QQC2.Button {
+                text: qsTr("Save")
+                highlighted: true
+                onClicked: {
+                    let summary = "";
+                    let config = {
+                        time: root.repeatTime,
+                        startDate: root.startDate,
+                        endType: root.endType,
+                        endDate: root.endDate,
+                        endOccurrences: root.endOccurrences
+                    };
+
+                    if (tabBar.currentIndex === 0) {
+                        config.type = "day";
+                        config.interval = daySpinBox.value;
+                        summary = daySpinBox.value === 1 ? qsTr("Daily") : qsTr("Every %1 days").arg(daySpinBox.value);
+                    } else if (tabBar.currentIndex === 1) {
+                        config.type = "week";
+                        config.interval = weekSpinBox.value;
+                        let dayNames = [qsTr("Sun"), qsTr("Mon"), qsTr("Tue"), qsTr("Wed"), qsTr("Thu"), qsTr("Fri"), qsTr("Sat")];
+                        let sortedDays = [...root.selectedDays].sort((a, b) => a - b);
+                        config.days = sortedDays;
+                        let daysStr = sortedDays.map(d => dayNames[d]).join(", ");
+                        if (weekSpinBox.value === 1) {
+                            summary = daysStr ? qsTr("Weekly on %1").arg(daysStr) : qsTr("Weekly");
+                        } else {
+                            summary = daysStr ? qsTr("Every %1 weeks on %2").arg(weekSpinBox.value).arg(daysStr) : qsTr("Every %1 weeks").arg(weekSpinBox.value);
+                        }
+                    } else if (tabBar.currentIndex === 2) {
+                        config.type = "month";
+                        config.interval = monthSpinBox.value;
+                        config.monthType = root.monthType;
+                        if (root.monthType === "day") {
+                            config.day = root.monthDay;
+                            let isLastDay = (monthDayCombo.currentIndex === 31 || root.monthDay === qsTr("last day") || root.monthDay === "last day");
+                            if (isLastDay) {
+                                if (monthSpinBox.value === 1) {
+                                    summary = qsTr("Monthly on the last day");
+                                } else {
+                                    summary = qsTr("Every %1 months on the last day").arg(monthSpinBox.value);
+                                }
+                            } else {
+                                if (monthSpinBox.value === 1) {
+                                    summary = qsTr("Monthly on day %1").arg(root.monthDay);
+                                } else {
+                                    summary = qsTr("Every %1 months on day %2").arg(monthSpinBox.value).arg(root.monthDay);
+                                }
+                            }
+                        } else {
+                            config.ordinal = monthOrdinalCombo.currentText;
+                            config.weekday = monthWeekdayCombo.currentText;
+                            if (monthSpinBox.value === 1) {
+                                summary = qsTr("Monthly on the %1 %2").arg(config.ordinal).arg(config.weekday);
+                            } else {
+                                summary = qsTr("Every %1 months on the %2 %3").arg(monthSpinBox.value).arg(config.ordinal).arg(config.weekday);
+                            }
+                        }
+                    } else {
+                        config.type = "year";
+                        config.interval = yearSpinBox.value;
+                        summary = yearSpinBox.value === 1 ? qsTr("Yearly") : qsTr("Every %1 years").arg(yearSpinBox.value);
+                    }
+
+                    if (root.repeatTime !== "") {
+                        summary += " " + qsTr("at %1").arg(root.repeatTime);
+                    }
+
+                    root.repeatSaved(summary, config);
+                    root.close();
+                }
+            }
+        }
     }
 
     // ── Nested Popups ───────────────────────────────────────────────────────
     DateTime.TimePopup {
         id: repeatTimePopup
-        parent: QQC2.Overlay.overlay
+        // parent: root
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
         onAccepted: {
             root.repeatTime = Qt.formatTime(repeatTimePopup.value, "hh:mm");
         }
@@ -547,16 +615,24 @@ Kirigami.Dialog {
     DateTime.DatePopup {
         id: startDatePopup
         parent: QQC2.Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+        autoAccept: true
         onAccepted: {
             root.startDate = Qt.formatDate(startDatePopup.value, "yyyy-MM-dd");
+            startDatePopup.close();
         }
     }
 
     DateTime.DatePopup {
         id: endDatePopup
         parent: QQC2.Overlay.overlay
+        x: parent ? Math.round((parent.width - width) / 2) : 0
+        y: parent ? Math.round((parent.height - height) / 2) : 0
+        autoAccept: true
         onAccepted: {
             root.endDate = Qt.formatDate(endDatePopup.value, "yyyy-MM-dd");
+            endDatePopup.close();
         }
     }
 }

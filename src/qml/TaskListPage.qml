@@ -30,6 +30,8 @@ Kirigami.Page {
                         description: "",
                         dueDate: "",
                         dueTime: "",
+                        repeatRule: "",
+                        repeatConfig: "",
                         isCompleted: false
                     });
                     text = "";
@@ -83,6 +85,8 @@ Kirigami.Page {
                 description: "Create initial UI wireframes and visual specs for the task list and sidebar."
                 dueDate: "2026-10-30"
                 dueTime: "10:00"
+                repeatRule: "Weekly on Fri"
+                repeatConfig: "{\"type\":\"week\",\"interval\":1,\"startDate\":\"2026-10-30\",\"time\":\"10:00\",\"days\":[5]}"
                 isCompleted: true
             }
             ListElement {
@@ -90,6 +94,8 @@ Kirigami.Page {
                 description: "Add list model, item delegate, and selection handling."
                 dueDate: "2026-11-02"
                 dueTime: "14:30"
+                repeatRule: ""
+                repeatConfig: ""
                 isCompleted: true
             }
             ListElement {
@@ -97,13 +103,17 @@ Kirigami.Page {
                 description: "Design 10-color popup palette with custom native dialog option."
                 dueDate: ""
                 dueTime: ""
+                repeatRule: ""
+                repeatConfig: ""
                 isCompleted: true
             }
             ListElement {
                 title: "Hook up task completion checkboxes"
                 description: "Persist checkbox states and apply strikethrough styling."
-                dueDate: "2026-10-25"
-                dueTime: "12:00"
+                dueDate: "2026-10-21"
+                dueTime: "08:00"
+                repeatRule: "Daily at 08:00"
+                repeatConfig: "{\"type\":\"day\",\"interval\":1,\"startDate\":\"2026-10-21\",\"time\":\"08:00\"}"
                 isCompleted: false
             }
             ListElement {
@@ -111,6 +121,8 @@ Kirigami.Page {
                 description: "Cover list creation, renaming, color changes, and task completion."
                 dueDate: ""
                 dueTime: ""
+                repeatRule: ""
+                repeatConfig: ""
                 isCompleted: false
             }
             ListElement {
@@ -118,6 +130,8 @@ Kirigami.Page {
                 description: "Ensure KDE HIG adherence and dark/light Breeze theme support."
                 dueDate: "2026-11-10"
                 dueTime: "18:00"
+                repeatRule: ""
+                repeatConfig: ""
                 isCompleted: false
             }
         }
