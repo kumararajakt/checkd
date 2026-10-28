@@ -28,6 +28,7 @@ find_package(KF6 REQUIRED COMPONENTS
     CoreAddons
     QQC2DesktopStyle
     IconThemes
+    StatusNotifierItem
 )
 
 ecm_find_qmlmodule(org.kde.kirigami REQUIRED)

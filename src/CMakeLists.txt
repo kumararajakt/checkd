@@ -14,6 +14,8 @@ target_sources(checkd
     sidebarlistmodel.h
     tasklistmodel.cpp
     tasklistmodel.h
+    systemtray.cpp
+    systemtray.h
 )
 
 target_compile_options(checkd
@@ -43,6 +45,7 @@ target_link_libraries(checkd
     KF6::I18n
     KF6::CoreAddons
     KF6::IconThemes
+    KF6::StatusNotifierItem
     asyncsql
 )
 
