@@ -32,7 +32,7 @@ Kirigami.Page {
             displayHint: Kirigami.DisplayHint.KeepVisible
             checkable: true
             checked: root.showAddTask
-            visible: root.listsCount > 0 && root.selectedListIndex >= 0
+            enabled: root.listsCount > 0 && root.selectedListIndex >= 0
             onTriggered: {
                 root.showAddTask = checked;
             }

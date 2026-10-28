@@ -387,13 +387,15 @@ QQC2.ItemDelegate {
                     text: delegate.dueDate !== "" ? qsTr("Due: %1").arg(delegate.dueDate) : qsTr("Set Due Date")
                     onClicked: {
                         datePopupLoader.active = true;
-                        let popup = datePopupLoader.item;
-                        if (delegate.dueDate !== "") {
-                            popup.value = new Date(delegate.dueDate);
-                        } else {
-                            popup.value = new Date();
+                        let popup = datePopupLoader.item as DateTime.DatePopup;
+                        if (popup) {
+                            if (delegate.dueDate !== "") {
+                                popup.value = new Date(delegate.dueDate);
+                            } else {
+                                popup.value = new Date();
+                            }
+                            popup.open();
                         }
-                        popup.open();
                     }
                 }
 
@@ -404,16 +406,18 @@ QQC2.ItemDelegate {
                     text: delegate.dueTime !== "" ? delegate.dueTime : qsTr("Set Time")
                     onClicked: {
                         timePopupLoader.active = true;
-                        let popup = timePopupLoader.item;
-                        let now = new Date();
-                        if (delegate.dueTime !== "") {
-                            let parts = delegate.dueTime.split(":");
-                            if (parts.length >= 2) {
-                                now.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0);
+                        let popup = timePopupLoader.item as DateTime.TimePopup;
+                        if (popup) {
+                            let now = new Date();
+                            if (delegate.dueTime !== "") {
+                                let parts = delegate.dueTime.split(":");
+                                if (parts.length >= 2) {
+                                    now.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0);
+                                }
                             }
+                            popup.value = now;
+                            popup.open();
                         }
-                        popup.value = now;
-                        popup.open();
                     }
                 }
 
@@ -469,13 +473,15 @@ QQC2.ItemDelegate {
                     icon.name: "media-playlist-repeat"
                     onClicked: {
                         repeatDialogLoader.active = true;
-                        let dlg = repeatDialogLoader.item;
-                        if (delegate.repeatConfig && delegate.repeatConfig.length > 0) {
-                            try {
-                                dlg.loadConfig(JSON.parse(delegate.repeatConfig));
-                            } catch (e) {}
+                        let dlg = repeatDialogLoader.item as RepeatDialog;
+                        if (dlg) {
+                            if (delegate.repeatConfig && delegate.repeatConfig.length > 0) {
+                                try {
+                                    dlg.loadConfig(JSON.parse(delegate.repeatConfig));
+                                } catch (e) {}
+                            }
+                            dlg.open();
                         }
-                        dlg.open();
                     }
                 }
 
@@ -500,7 +506,10 @@ QQC2.ItemDelegate {
         acceptedButtons: Qt.RightButton
         onTapped: {
             contextMenuLoader.active = true;
-            contextMenuLoader.item.popup();
+            let menu = contextMenuLoader.item as QQC2.Menu;
+            if (menu) {
+                menu.popup();
+            }
         }
     }
 
