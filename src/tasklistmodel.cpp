@@ -8,6 +8,7 @@
 #include <QUuid>
 
 #include "asyncsql/databaseexception.h"
+#include "notificationmanager.h"
 
 using namespace AsyncSql;
 
@@ -20,6 +21,7 @@ TaskListModel::TaskListModel(QObject *parent)
     connect(this, &QAbstractItemModel::modelReset, this, &TaskListModel::countChanged);
     connect(this, &QAbstractItemModel::rowsInserted, this, &TaskListModel::countChanged);
     connect(this, &QAbstractItemModel::rowsRemoved, this, &TaskListModel::countChanged);
+    connect(&NotificationManager::instance(), &NotificationManager::taskStateChanged, this, &TaskListModel::reload);
 }
 
 void TaskListModel::onInit(QSqlDatabase &db)

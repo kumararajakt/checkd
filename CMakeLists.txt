@@ -29,6 +29,7 @@ find_package(KF6 REQUIRED COMPONENTS
     QQC2DesktopStyle
     IconThemes
     StatusNotifierItem
+    Notifications
 )
 
 ecm_find_qmlmodule(org.kde.kirigami REQUIRED)
@@ -41,5 +42,6 @@ add_subdirectory(src)
 add_subdirectory(tests)
 
 install(PROGRAMS checkd.desktop DESTINATION ${KDE_INSTALL_APPDIR})
+install(FILES checkd.notifyrc DESTINATION ${KDE_INSTALL_KNOTIFYRCDIR})
 
 feature_summary(WHAT ALL INCLUDE_QUIET_PACKAGES FATAL_ON_MISSING_REQUIRED_PACKAGES)

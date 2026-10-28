@@ -9,6 +9,7 @@
 
 #include <QQuickWindow>
 #include "databasemanager.h"
+#include "notificationmanager.h"
 #include "sidebarlistmodel.h"
 #include "systemtray.h"
 #include "tasklistmodel.h"
@@ -44,6 +45,11 @@ int main(int argc, char *argv[])
     QQuickWindow *mainWindow = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
     SystemTray systemTray(mainWindow, &app);
     engine.rootContext()->setContextProperty(QStringLiteral("systemTray"), &systemTray);
+
+    NotificationManager::instance().setAssociatedWindow(mainWindow);
+    engine.rootContext()->setContextProperty(QStringLiteral("notificationManager"), &NotificationManager::instance());
+    NotificationManager::instance().resetNotifications();
+    NotificationManager::instance().checkNotifications();
 
     return app.exec();
 }

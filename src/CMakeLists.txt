@@ -16,6 +16,8 @@ target_sources(checkd
     tasklistmodel.h
     systemtray.cpp
     systemtray.h
+    notificationmanager.cpp
+    notificationmanager.h
 )
 
 target_compile_options(checkd
@@ -46,6 +48,7 @@ target_link_libraries(checkd
     KF6::CoreAddons
     KF6::IconThemes
     KF6::StatusNotifierItem
+    KF6::Notifications
     asyncsql
 )
 

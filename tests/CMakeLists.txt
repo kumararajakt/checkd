@@ -25,6 +25,7 @@ add_executable(tst_tasklistmodel
     ../src/databasemanager.cpp
     ../src/sidebarlistmodel.cpp
     ../src/tasklistmodel.cpp
+    ../src/notificationmanager.cpp
 )
 
 target_include_directories(tst_tasklistmodel PRIVATE
@@ -38,7 +39,33 @@ target_link_libraries(tst_tasklistmodel PRIVATE
     Qt6::Test
     Qt6::Sql
     Qt6::Qml
+    KF6::I18n
+    KF6::Notifications
     asyncsql
 )
 
 add_test(NAME tst_tasklistmodel COMMAND tst_tasklistmodel)
+
+add_executable(tst_notificationmanager
+    tst_notificationmanager.cpp
+    ../src/databasemanager.cpp
+    ../src/notificationmanager.cpp
+)
+
+target_include_directories(tst_notificationmanager PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_compile_options(tst_notificationmanager PRIVATE -fexceptions)
+
+target_link_libraries(tst_notificationmanager PRIVATE
+    Qt6::Core
+    Qt6::Test
+    Qt6::Sql
+    Qt6::Gui
+    KF6::I18n
+    KF6::Notifications
+    asyncsql
+)
+
+add_test(NAME tst_notificationmanager COMMAND tst_notificationmanager)

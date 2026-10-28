@@ -1,0 +1,11 @@
+[Global]
+IconName=checkd
+DesktopEntry=checkd
+Name=CheckD
+Comment=CheckD task manager
+
+[Event/taskNotification]
+Name=Task Reminder
+Comment=A reminder for a due or repeating task
+Action=Popup
+Urgency=Normal
