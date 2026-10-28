@@ -29,6 +29,7 @@ Kirigami.Page {
                         title: text.trim(),
                         description: "",
                         dueDate: "",
+                        dueTime: "",
                         isCompleted: false
                     });
                     text = "";
@@ -81,36 +82,42 @@ Kirigami.Page {
                 title: "Design user interface mockups"
                 description: "Create initial UI wireframes and visual specs for the task list and sidebar."
                 dueDate: "2026-10-30"
+                dueTime: "10:00"
                 isCompleted: true
             }
             ListElement {
                 title: "Implement sidebar list navigation"
                 description: "Add list model, item delegate, and selection handling."
                 dueDate: "2026-11-02"
+                dueTime: "14:30"
                 isCompleted: true
             }
             ListElement {
                 title: "Add color picker dialog"
                 description: "Design 10-color popup palette with custom native dialog option."
                 dueDate: ""
+                dueTime: ""
                 isCompleted: true
             }
             ListElement {
                 title: "Hook up task completion checkboxes"
                 description: "Persist checkbox states and apply strikethrough styling."
-                dueDate: "2026-11-05"
+                dueDate: "2026-10-25"
+                dueTime: "12:00"
                 isCompleted: false
             }
             ListElement {
                 title: "Write unit tests for task models"
                 description: "Cover list creation, renaming, color changes, and task completion."
                 dueDate: ""
+                dueTime: ""
                 isCompleted: false
             }
             ListElement {
                 title: "Refactor Kirigami application styles"
                 description: "Ensure KDE HIG adherence and dark/light Breeze theme support."
                 dueDate: "2026-11-10"
+                dueTime: "18:00"
                 isCompleted: false
             }
         }

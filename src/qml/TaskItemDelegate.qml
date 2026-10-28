@@ -12,6 +12,7 @@ QQC2.ItemDelegate {
     required property string title
     required property string description
     required property string dueDate
+    required property string dueTime
     required property bool isCompleted
     required property int index
 
@@ -37,6 +38,30 @@ QQC2.ItemDelegate {
             }
         }
         delegate.isEditing = false;
+    }
+
+    function isOverdue(dueDateStr: string, dueTimeStr: string): bool {
+        if (!dueDateStr || dueDateStr.length === 0) {
+            return false;
+        }
+        let parts = dueDateStr.split("-");
+        if (parts.length !== 3) {
+            return false;
+        }
+        let year = parseInt(parts[0], 10);
+        let month = parseInt(parts[1], 10) - 1;
+        let day = parseInt(parts[2], 10);
+        let hours = 23;
+        let minutes = 59;
+        if (dueTimeStr && dueTimeStr.length > 0) {
+            let tParts = dueTimeStr.split(":");
+            if (tParts.length >= 2) {
+                hours = parseInt(tParts[0], 10);
+                minutes = parseInt(tParts[1], 10);
+            }
+        }
+        let dueDateTime = new Date(year, month, day, hours, minutes, 0);
+        return dueDateTime.getTime() < Date.now();
     }
 
     width: ListView.view ? ListView.view.width : implicitWidth
@@ -113,22 +138,24 @@ QQC2.ItemDelegate {
             }
         }
 
-        RowLayout {
+        Kirigami.Chip {
+            id: dueChip
             visible: !delegate.isEditing && delegate.dueDate !== ""
-            spacing: 4
-            opacity: 0.7
             Layout.leftMargin: checkBox.width + arrowIcon.width + Kirigami.Units.smallSpacing * 2
 
+            readonly property bool isOverdue: !delegate.isCompleted && delegate.isOverdue(delegate.dueDate, delegate.dueTime)
 
-            Kirigami.Icon {
-                implicitWidth: Kirigami.Units.iconSizes.small
-                implicitHeight: implicitWidth
-                source: "view-calendar"
-            }
+            text: delegate.dueTime !== "" ? (delegate.dueDate + "  " + delegate.dueTime) : delegate.dueDate
+            icon.name: "view-calendar"
+            icon.color: isOverdue ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
+            labelItem.color: isOverdue ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
 
-            QQC2.Label {
-                text: delegate.dueDate
-                font: Kirigami.Theme.smallFont
+            interactive: false
+
+            background: Rectangle {
+                radius: Kirigami.Units.cornerRadius
+                border.color: Kirigami.Theme.alternateBackgroundColor
+                border.width: 1
             }
         }
 
@@ -161,17 +188,52 @@ QQC2.ItemDelegate {
                     }
                 }
 
+                QQC2.Button {
+                    id: dueTimeButton
+                    visible: delegate.dueDate !== ""
+                    icon.name: "preferences-system-time"
+                    text: delegate.dueTime !== "" ? delegate.dueTime : qsTr("Set Time")
+                    onClicked: {
+                        let now = new Date();
+                        if (delegate.dueTime !== "") {
+                            let parts = delegate.dueTime.split(":");
+                            if (parts.length >= 2) {
+                                now.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0);
+                            }
+                        }
+                        timePopup.value = now;
+                        timePopup.open();
+                    }
+                }
+
+                QQC2.ToolButton {
+                    visible: delegate.dueDate !== "" && delegate.dueTime !== ""
+                    icon.name: "edit-clear"
+                    flat: true
+                    QQC2.ToolTip.text: qsTr("Clear Time")
+                    QQC2.ToolTip.visible: hovered
+                    onClicked: {
+                        if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
+                            ListView.view.model.setProperty(delegate.index, "dueTime", "");
+                        } else {
+                            delegate.dueTime = "";
+                        }
+                    }
+                }
+
                 QQC2.ToolButton {
                     visible: delegate.dueDate !== ""
-                    icon.name: "edit-clear"
+                    icon.name: "edit-delete"
                     flat: true
                     QQC2.ToolTip.text: qsTr("Clear Due Date")
                     QQC2.ToolTip.visible: hovered
                     onClicked: {
                         if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
                             ListView.view.model.setProperty(delegate.index, "dueDate", "");
+                            ListView.view.model.setProperty(delegate.index, "dueTime", "");
                         } else {
                             delegate.dueDate = "";
+                            delegate.dueTime = "";
                         }
                     }
                 }
@@ -239,6 +301,28 @@ QQC2.ItemDelegate {
                 ListView.view.model.setProperty(delegate.index, "dueDate", "");
             } else {
                 delegate.dueDate = "";
+            }
+        }
+    }
+
+    DateTime.TimePopup {
+        id: timePopup
+        parent: QQC2.Overlay.overlay
+        resettable: true
+        onAccepted: {
+            let t = timePopup.value;
+            let formattedTime = Qt.formatTime(t, "hh:mm");
+            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
+                ListView.view.model.setProperty(delegate.index, "dueTime", formattedTime);
+            } else {
+                delegate.dueTime = formattedTime;
+            }
+        }
+        onReset: {
+            if (ListView.view && ListView.view.model && typeof ListView.view.model.setProperty === "function") {
+                ListView.view.model.setProperty(delegate.index, "dueTime", "");
+            } else {
+                delegate.dueTime = "";
             }
         }
     }
