@@ -510,7 +510,7 @@ void TaskListModel::setDueDate(int row, const QString &dueDate)
     QueryRequest request(this, QString(), tableName_, QueryRequest::CustomOperation);
     request.setCustomOperation([id, listId, dueDate, now](QSqlDatabase db) {
         QSqlQuery q(db);
-        q.prepare(QStringLiteral("UPDATE tasks SET due_date = ?, updated_at = ? WHERE id = ?"));
+        q.prepare(QStringLiteral("UPDATE tasks SET due_date = ?, notified_key = NULL, updated_at = ? WHERE id = ?"));
         q.addBindValue(dueDate.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : dueDate);
         q.addBindValue(now);
         q.addBindValue(id);
@@ -558,7 +558,7 @@ void TaskListModel::setDueTime(int row, const QString &dueTime)
     QueryRequest request(this, QString(), tableName_, QueryRequest::CustomOperation);
     request.setCustomOperation([id, listId, dueTime, now](QSqlDatabase db) {
         QSqlQuery q(db);
-        q.prepare(QStringLiteral("UPDATE tasks SET due_time = ?, updated_at = ? WHERE id = ?"));
+        q.prepare(QStringLiteral("UPDATE tasks SET due_time = ?, notified_key = NULL, updated_at = ? WHERE id = ?"));
         q.addBindValue(dueTime.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : dueTime);
         q.addBindValue(now);
         q.addBindValue(id);
@@ -661,7 +661,7 @@ void TaskListModel::setRepeat(int row, const QString &repeatRule, const QString 
     QueryRequest request(this, QString(), tableName_, QueryRequest::CustomOperation);
     request.setCustomOperation([id, listId, repeatJson, now](QSqlDatabase db) {
         QSqlQuery q(db);
-        q.prepare(QStringLiteral("UPDATE tasks SET repeat_json = ?, updated_at = ? WHERE id = ?"));
+        q.prepare(QStringLiteral("UPDATE tasks SET repeat_json = ?, notified_key = NULL, next_occurrence = NULL, updated_at = ? WHERE id = ?"));
         q.addBindValue(repeatJson.isEmpty() ? QVariant(QMetaType(QMetaType::QString)) : repeatJson);
         q.addBindValue(now);
         q.addBindValue(id);

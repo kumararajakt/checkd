@@ -54,7 +54,6 @@ int main(int argc, char *argv[])
 
     NotificationManager::instance().setAssociatedWindow(mainWindow);
     engine.rootContext()->setContextProperty(QStringLiteral("notificationManager"), &NotificationManager::instance());
-    NotificationManager::instance().resetNotifications();
     NotificationManager::instance().checkNotifications();
 
     return app.exec();

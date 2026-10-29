@@ -248,9 +248,16 @@ void NotificationManager::markTaskCompleted(const QString &taskId)
                     }
                     QString newNextOcc = computeNextOccurrence(repeatJson, curDate);
 
+                    QJsonDocument doc = QJsonDocument::fromJson(repeatJson.toUtf8());
+                    QJsonObject obj = doc.object();
+                    obj[QStringLiteral("startDate")] = newNextOcc;
+                    QString updatedRepeatJson = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+
                     QSqlQuery u(db);
-                    u.prepare(QStringLiteral("UPDATE tasks SET next_occurrence = :nextOcc, occurrence_index = :idx, notified_key = NULL, updated_at = :now WHERE id = :id"));
+                    u.prepare(QStringLiteral("UPDATE tasks SET due_date = :dueDate, next_occurrence = :nextOcc, repeat_json = :repeatJson, occurrence_index = :idx, notified_key = NULL, updated_at = :now WHERE id = :id"));
+                    u.bindValue(QStringLiteral(":dueDate"), newNextOcc);
                     u.bindValue(QStringLiteral(":nextOcc"), newNextOcc);
+                    u.bindValue(QStringLiteral(":repeatJson"), updatedRepeatJson);
                     u.bindValue(QStringLiteral(":idx"), occIdx + 1);
                     u.bindValue(QStringLiteral(":now"), now);
                     u.bindValue(QStringLiteral(":id"), taskId);
@@ -352,8 +359,82 @@ void NotificationManager::checkNotifications()
     const qint64 nowMs = currentDateTime.toMSecsSinceEpoch();
 
     for (const TaskNotif &t : std::as_const(pending)) {
-        // 1. Due date check
-        if (!t.dueDate.trimmed().isEmpty()) {
+        // 1. Repeating task check (repeating tasks manage their own schedule and occurrences)
+        if (!t.repeatJson.trimmed().isEmpty()) {
+            QJsonDocument doc = QJsonDocument::fromJson(t.repeatJson.toUtf8());
+            QString startStr = doc.object().value(QStringLiteral("startDate")).toString();
+            if (startStr.isEmpty()) {
+                startStr = doc.object().value(QStringLiteral("start")).toString();
+            }
+            if (startStr.isEmpty()) {
+                startStr = t.dueDate;
+            }
+            QDate startDate = QDate::fromString(startStr, QStringLiteral("yyyy-MM-dd"));
+            if (!startDate.isValid()) {
+                startDate = currentDate;
+            }
+
+            QString nextOcc = t.nextOcc;
+            QDate occDate = QDate::fromString(nextOcc, QStringLiteral("yyyy-MM-dd"));
+            if (!occDate.isValid() || occDate < startDate) {
+                occDate = startDate;
+                nextOcc = occDate.toString(QStringLiteral("yyyy-MM-dd"));
+                updateNextOccurrence(t.id, nextOcc, nowMs);
+            }
+
+            if (occDate.isValid()) {
+                QString timeStr = doc.object().value(QStringLiteral("time")).toString();
+                if (timeStr.isEmpty()) {
+                    timeStr = t.dueTime;
+                }
+                QDateTime occDateTime;
+                if (!timeStr.isEmpty()) {
+                    QTime occTime = QTime::fromString(timeStr, QStringLiteral("hh:mm"));
+                    if (!occTime.isValid()) {
+                        occTime = QTime::fromString(timeStr, QStringLiteral("h:mm"));
+                    }
+                    occDateTime = QDateTime(occDate, occTime.isValid() ? occTime : QTime(0, 0, 0));
+                } else {
+                    occDateTime = QDateTime(occDate, QTime(0, 0, 0));
+                }
+
+                if (currentDateTime >= occDateTime) {
+                    const QString key = QStringLiteral("occ:") + nextOcc + (timeStr.isEmpty() ? QString() : (QLatin1Char('T') + timeStr));
+                    if (t.notifiedKey != key) {
+                        const bool isOverdue = timeStr.isEmpty() ? (occDate < currentDate) : (currentDateTime > occDateTime);
+                        QString when;
+                        if (!timeStr.isEmpty()) {
+                            when = QStringLiteral("%1 · %2").arg(occDate.toString(QStringLiteral("MMM d, yyyy")), timeStr);
+                        } else {
+                            when = occDate.toString(QStringLiteral("MMM d, yyyy"));
+                        }
+
+                        QString body;
+                        if (isOverdue) {
+                            if (!t.listName.isEmpty()) {
+                                body = QStringLiteral("Overdue · %1 · %2").arg(t.listName, when);
+                            } else {
+                                body = QStringLiteral("Overdue · %1").arg(when);
+                            }
+                        } else {
+                            if (!t.listName.isEmpty()) {
+                                body = QStringLiteral("%1 · %2").arg(t.listName, when);
+                            } else {
+                                body = when;
+                            }
+                        }
+                        if (!t.description.trimmed().isEmpty()) {
+                            body += QStringLiteral("\n") + t.description.trimmed();
+                        }
+
+                        sendNotification(t.id, t.listId, t.title, body, key, true, t.repeatJson, nextOcc);
+                        updateNotifiedKey(t.id, key, nowMs);
+                    }
+                }
+            }
+        }
+        // 2. Standard one-time task due date check
+        else if (!t.dueDate.trimmed().isEmpty()) {
             QDate dueDate = QDate::fromString(t.dueDate, QStringLiteral("yyyy-MM-dd"));
             if (dueDate.isValid()) {
                 QDateTime dueDateTime;
@@ -397,79 +478,6 @@ void NotificationManager::checkNotifications()
                         }
 
                         sendNotification(t.id, t.listId, t.title, body, key, false, QString(), QString());
-                        updateNotifiedKey(t.id, key, nowMs);
-                    }
-                }
-            }
-        }
-
-        // 2. Repeating task check
-        if (!t.repeatJson.trimmed().isEmpty()) {
-            QString nextOcc = t.nextOcc;
-            if (nextOcc.isEmpty()) {
-                QJsonDocument doc = QJsonDocument::fromJson(t.repeatJson.toUtf8());
-                QString startStr = doc.object().value(QStringLiteral("startDate")).toString();
-                if (startStr.isEmpty()) {
-                    startStr = doc.object().value(QStringLiteral("start")).toString();
-                }
-                QDate startDate = QDate::fromString(startStr, QStringLiteral("yyyy-MM-dd"));
-                if (!startDate.isValid()) {
-                    startDate = currentDate;
-                }
-                QDate occ = startDate;
-                while (occ < currentDate) {
-                    QDate adv = QDate::fromString(computeNextOccurrence(t.repeatJson, occ), QStringLiteral("yyyy-MM-dd"));
-                    if (!adv.isValid() || adv <= occ) {
-                        break;
-                    }
-                    occ = adv;
-                }
-                nextOcc = occ.toString(QStringLiteral("yyyy-MM-dd"));
-                updateNextOccurrence(t.id, nextOcc, nowMs);
-            }
-
-            QDate occDate = QDate::fromString(nextOcc, QStringLiteral("yyyy-MM-dd"));
-            if (occDate.isValid()) {
-                QJsonDocument doc = QJsonDocument::fromJson(t.repeatJson.toUtf8());
-                QString timeStr = doc.object().value(QStringLiteral("time")).toString();
-                QDateTime occDateTime;
-                if (!timeStr.isEmpty()) {
-                    QTime occTime = QTime::fromString(timeStr, QStringLiteral("hh:mm"));
-                    occDateTime = QDateTime(occDate, occTime.isValid() ? occTime : QTime(0, 0, 0));
-                } else {
-                    occDateTime = QDateTime(occDate, QTime(0, 0, 0));
-                }
-
-                if (currentDateTime >= occDateTime) {
-                    const QString key = QStringLiteral("occ:") + nextOcc + (timeStr.isEmpty() ? QString() : (QLatin1Char('T') + timeStr));
-                    if (t.notifiedKey != key) {
-                        const bool isOverdue = timeStr.isEmpty() ? (occDate < currentDate) : (currentDateTime > occDateTime);
-                        QString when;
-                        if (!timeStr.isEmpty()) {
-                            when = QStringLiteral("%1 · %2").arg(occDate.toString(QStringLiteral("MMM d, yyyy")), timeStr);
-                        } else {
-                            when = occDate.toString(QStringLiteral("MMM d, yyyy"));
-                        }
-
-                        QString body;
-                        if (isOverdue) {
-                            if (!t.listName.isEmpty()) {
-                                body = QStringLiteral("Overdue · %1 · %2").arg(t.listName, when);
-                            } else {
-                                body = QStringLiteral("Overdue · %1").arg(when);
-                            }
-                        } else {
-                            if (!t.listName.isEmpty()) {
-                                body = QStringLiteral("%1 · %2").arg(t.listName, when);
-                            } else {
-                                body = when;
-                            }
-                        }
-                        if (!t.description.trimmed().isEmpty()) {
-                            body += QStringLiteral("\n") + t.description.trimmed();
-                        }
-
-                        sendNotification(t.id, t.listId, t.title, body, key, true, t.repeatJson, nextOcc);
                         updateNotifiedKey(t.id, key, nowMs);
                     }
                 }

@@ -162,6 +162,64 @@ private Q_SLOTS:
         QSqlDatabase::removeDatabase(conn);
     }
 
+    void testRepeatingTaskWithDueDateDoesNotDuplicate() {
+        const QString dbPath = DatabaseManager::instance().databasePath();
+        const QString conn = QStringLiteral("test_notif_repeat_due");
+        const QString todayStr = QDate::currentDate().toString(QStringLiteral("yyyy-MM-dd"));
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+            db.setDatabaseName(dbPath);
+            QVERIFY(db.open());
+
+            QSqlQuery q(db);
+            // Insert task with BOTH dueDate and repeatJson (as created when adding repeat in UI)
+            q.prepare(QStringLiteral("INSERT INTO tasks (id, list_id, title, description, due_date, due_time, repeat_json, position, updated_at, completed) "
+                                     "VALUES ('task-rep-both', 'list1', 'Morning Standup', '', :today, '08:00', :repeatJson, 3, 1000, 0)"));
+            q.bindValue(QStringLiteral(":today"), todayStr);
+            const QString repeatJson = QStringLiteral("{\"type\":\"day\",\"interval\":1,\"startDate\":\"") + todayStr + QStringLiteral("\",\"time\":\"08:00\"}");
+            q.bindValue(QStringLiteral(":repeatJson"), repeatJson);
+            QVERIFY(q.exec());
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(conn);
+
+        // First check
+        NotificationManager::instance().checkNotifications();
+
+        QString keyAfterFirstCheck;
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+            db.setDatabaseName(dbPath);
+            QVERIFY(db.open());
+
+            QSqlQuery q(db);
+            q.exec(QStringLiteral("SELECT notified_key FROM tasks WHERE id = 'task-rep-both'"));
+            QVERIFY(q.next());
+            keyAfterFirstCheck = q.value(0).toString();
+            // Should be occ:todayT08:00, NOT ping-ponged with due:todayT08:00
+            QCOMPARE(keyAfterFirstCheck, QStringLiteral("occ:") + todayStr + QStringLiteral("T08:00"));
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(conn);
+
+        // Second check (simulating next timer tick)
+        NotificationManager::instance().checkNotifications();
+
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+            db.setDatabaseName(dbPath);
+            QVERIFY(db.open());
+
+            QSqlQuery q(db);
+            q.exec(QStringLiteral("SELECT notified_key FROM tasks WHERE id = 'task-rep-both'"));
+            QVERIFY(q.next());
+            // Key should remain unchanged and stable
+            QCOMPARE(q.value(0).toString(), keyAfterFirstCheck);
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(conn);
+    }
+
     void cleanupTestCase() {
         QTest::qWait(50);
         QCoreApplication::processEvents();
