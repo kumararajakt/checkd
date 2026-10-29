@@ -325,7 +325,7 @@ QQC2.ItemDelegate {
 
         RowLayout {
             id: chipsRow
-            visible: !delegate.isEditing && !delegate.expanded && (delegate.dueDate !== "" || delegate.repeatRule !== "")
+            visible: !delegate.isCompleted && !delegate.isEditing && !delegate.expanded && (delegate.dueDate !== "" || delegate.repeatRule !== "")
             Layout.leftMargin: checkBox.width + arrowIcon.width + Kirigami.Units.smallSpacing * 2
             spacing: Kirigami.Units.smallSpacing
 
