@@ -37,6 +37,16 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Configure OAuth credentials
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID || secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET || secrets.CLIENT_SECRET }}
+        run: |
+          if [ -n "$CLIENT_ID" ]; then
+            echo "CLIENT_ID=${CLIENT_ID}" >> .env
+            echo "CLIENT_SECRET=${CLIENT_SECRET}" >> .env
+          fi
+
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
@@ -63,6 +73,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Configure OAuth credentials
+        env:
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID || secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET || secrets.CLIENT_SECRET }}
+        run: |
+          if [ -n "$CLIENT_ID" ]; then
+            echo "CLIENT_ID=${CLIENT_ID}" >> .env
+            echo "CLIENT_SECRET=${CLIENT_SECRET}" >> .env
+          fi
 
       - name: Install build dependencies
         run: |
