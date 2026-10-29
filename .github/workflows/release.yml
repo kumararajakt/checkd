@@ -82,7 +82,9 @@ jobs:
 
     steps:
       - name: Install git
-        run: dnf install -y git
+        run: |
+          dnf install -y git
+          git config --global --add safe.directory '*'
 
       - name: Checkout repository
         uses: actions/checkout@v4

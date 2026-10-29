@@ -52,8 +52,12 @@ void TaskFilterProxyModel::setFilterCompleted(bool completed)
     }
 
     m_filterCompleted = completed;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
     beginFilterChange();
-    endFilterChange(Direction::Rows);
+    endFilterChange(QSortFilterProxyModel::Direction::Rows);
+#else
+    invalidateFilter();
+#endif
     Q_EMIT filterCompletedChanged();
     Q_EMIT countChanged();
 }
@@ -79,8 +83,12 @@ void TaskFilterProxyModel::onSourceDataChanged(const QModelIndex &topLeft, const
     Q_UNUSED(topLeft)
     Q_UNUSED(bottomRight)
     if (roles.isEmpty() || roles.contains(TaskListModel::CompletedRole) || roles.contains(TaskListModel::IsCompletedRole)) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
         beginFilterChange();
-        endFilterChange(Direction::Rows);
+        endFilterChange(QSortFilterProxyModel::Direction::Rows);
+#else
+        invalidateFilter();
+#endif
         Q_EMIT countChanged();
     }
 }
