@@ -31,6 +31,8 @@ public:
     Q_INVOKABLE bool remove(int row);
     Q_INVOKABLE void deleteTask(int row);
     Q_INVOKABLE void setCompleted(int row, bool completed);
+    Q_INVOKABLE bool moveToList(int row, const QString &targetListId);
+    Q_INVOKABLE QVariantList otherLists() const;
     Q_INVOKABLE void addTask(const QString &title,
                              const QString &description = QString(),
                              const QString &dueDate = QString(),

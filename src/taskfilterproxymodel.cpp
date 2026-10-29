@@ -135,6 +135,24 @@ void TaskFilterProxyModel::setCompleted(int row, bool completed)
     m_sourceTaskListModel->setCompleted(srcIdx.row(), completed);
 }
 
+bool TaskFilterProxyModel::moveToList(int row, const QString &targetListId)
+{
+    if (!m_sourceTaskListModel || row < 0 || row >= rowCount()) {
+        return false;
+    }
+    const QModelIndex proxyIdx = index(row, 0);
+    const QModelIndex srcIdx = mapToSource(proxyIdx);
+    return m_sourceTaskListModel->moveToList(srcIdx.row(), targetListId);
+}
+
+QVariantList TaskFilterProxyModel::otherLists() const
+{
+    if (m_sourceTaskListModel) {
+        return m_sourceTaskListModel->otherLists();
+    }
+    return {};
+}
+
 void TaskFilterProxyModel::addTask(const QString &title,
                                    const QString &description,
                                    const QString &dueDate,

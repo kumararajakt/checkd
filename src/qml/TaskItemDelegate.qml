@@ -36,6 +36,12 @@ QQC2.ItemDelegate {
         }
     }
 
+    function moveToList(targetListId: string) {
+        if (delegate.taskModel && typeof delegate.taskModel.moveToList === "function") {
+            delegate.taskModel.moveToList(delegate.index, targetListId);
+        }
+    }
+
     function startEditing() {
         isEditing = true;
         editField.text = delegate.title;
@@ -505,6 +511,7 @@ QQC2.ItemDelegate {
     TapHandler {
         acceptedButtons: Qt.RightButton
         onTapped: {
+            contextMenuLoader.active = false;
             contextMenuLoader.active = true;
             let menu = contextMenuLoader.item as QQC2.Menu;
             if (menu) {
@@ -517,10 +524,43 @@ QQC2.ItemDelegate {
         id: contextMenuLoader
         active: false
         sourceComponent: QQC2.Menu {
+            id: taskMenu
+
+            property var otherLists: []
+
+            Component.onCompleted: {
+                if (delegate.taskModel && typeof delegate.taskModel.otherLists === "function") {
+                    otherLists = delegate.taskModel.otherLists();
+                }
+            }
+
             QQC2.MenuItem {
                 text: qsTr("Edit")
                 icon.name: "document-edit"
                 onTriggered: delegate.startEditing()
+            }
+
+            QQC2.Menu {
+                id: moveMenu
+                title: qsTr("Move to List")
+                icon.name: "edit-move"
+                visible: taskMenu.otherLists && taskMenu.otherLists.length > 0
+
+                Instantiator {
+                    model: taskMenu.otherLists
+                    delegate: QQC2.MenuItem {
+                        required property var modelData
+                        text: modelData ? (modelData.name || "") : ""
+                        icon.name: "folder"
+                        onTriggered: {
+                            if (modelData && modelData.id) {
+                                delegate.moveToList(modelData.id);
+                            }
+                        }
+                    }
+                    onObjectAdded: (index, object) => moveMenu.insertItem(index, object)
+                    onObjectRemoved: (index, object) => moveMenu.removeItem(object)
+                }
             }
 
             QQC2.MenuItem {

@@ -62,6 +62,8 @@ public:
     Q_INVOKABLE void setCompleted(int row, bool completed);
     Q_INVOKABLE void setRepeat(int row, const QString &repeatRule, const QString &repeatJson);
     Q_INVOKABLE void move(int from, int to);
+    Q_INVOKABLE bool moveToList(int row, const QString &targetListId);
+    Q_INVOKABLE QVariantList otherLists() const;
     Q_INVOKABLE void reload();
 
 Q_SIGNALS:

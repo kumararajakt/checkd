@@ -8,6 +8,7 @@
 #include <QUuid>
 
 #include "asyncsql/databaseexception.h"
+#include "databasemanager.h"
 #include "notificationmanager.h"
 #include "syncmanager.h"
 
@@ -791,6 +792,94 @@ void TaskListModel::move(int from, int to)
     });
 
     Q_EMIT execute(request);
+}
+
+bool TaskListModel::moveToList(int row, const QString &targetListId)
+{
+    if (row < 0 || row >= records_.count() || targetListId.isEmpty() || targetListId == m_listId) {
+        return false;
+    }
+
+    const QString id = records_.at(row).value(QStringLiteral("id")).toString();
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    beginRemoveRows(QModelIndex(), row, row);
+    records_.removeAt(row);
+    originalRecords_ = records_;
+    m_repeatRuleCache.remove(id);
+    endRemoveRows();
+    Q_EMIT countChanged();
+
+    QueryRequest request(this, QString(), tableName_, QueryRequest::CustomOperation);
+    request.setCustomOperation([id, targetListId, now](QSqlDatabase db) {
+        int newPos = 1;
+        QSqlQuery pq(db);
+        pq.prepare(QStringLiteral("SELECT COALESCE(MAX(position), 0) + 1 FROM tasks WHERE list_id = ?"));
+        pq.addBindValue(targetListId);
+        if (pq.exec() && pq.next()) {
+            newPos = pq.value(0).toInt();
+        }
+
+        QSqlQuery q(db);
+        q.prepare(QStringLiteral("UPDATE tasks SET list_id = ?, position = ?, updated_at = ? WHERE id = ?"));
+        q.addBindValue(targetListId);
+        q.addBindValue(newPos);
+        q.addBindValue(now);
+        q.addBindValue(id);
+        if (!q.exec()) {
+            throw DatabaseException(q.lastError());
+        }
+
+        QSqlQuery sq(db);
+        sq.prepare(QStringLiteral(
+            "INSERT INTO sync_links (entity_type, entity_id, parent_id, dirty, deleted, updated_at) "
+            "VALUES ('task', ?, ?, 1, 0, ?) "
+            "ON CONFLICT(entity_type, entity_id) DO UPDATE SET "
+            "parent_id = ?, dirty = 1, deleted = 0, updated_at = excluded.updated_at"
+        ));
+        sq.addBindValue(id);
+        sq.addBindValue(targetListId);
+        sq.addBindValue(now);
+        sq.addBindValue(targetListId);
+        if (!sq.exec()) {
+            throw DatabaseException(sq.lastError());
+        }
+    });
+
+    Q_EMIT execute(request);
+    return true;
+}
+
+QVariantList TaskListModel::otherLists() const
+{
+    QVariantList list;
+    const QString dbPath = DatabaseManager::instance().databasePath();
+    if (dbPath.isEmpty()) {
+        return list;
+    }
+
+    const QString conn = QStringLiteral("task_other_lists_conn");
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+        db.setDatabaseName(dbPath);
+        if (db.open()) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT id, name, color FROM lists WHERE id != ? ORDER BY position ASC"));
+            q.addBindValue(m_listId);
+            if (q.exec()) {
+                while (q.next()) {
+                    QVariantMap map;
+                    map.insert(QStringLiteral("id"), q.value(0).toString());
+                    map.insert(QStringLiteral("name"), q.value(1).toString());
+                    map.insert(QStringLiteral("color"), q.value(2).toString());
+                    list.append(map);
+                }
+            }
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(conn);
+    return list;
 }
 
 void TaskListModel::reload()

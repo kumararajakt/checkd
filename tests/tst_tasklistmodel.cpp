@@ -22,6 +22,7 @@ private Q_SLOTS:
     void testGetMethod();
     void testDeleteTask();
     void testTaskFilterProxyModel();
+    void testMoveToList();
 
 private:
     QTemporaryDir m_tempDir;
@@ -232,6 +233,55 @@ void TestTaskListModel::testTaskFilterProxyModel()
     // Clean up
     taskModel.remove(0);
     taskModel.remove(0);
+}
+
+void TestTaskListModel::testMoveToList()
+{
+    // Create a second list
+    SidebarListModel listModel;
+    QSignalSpy listSpy(&listModel, &AsyncSql::AsyncSqlBaseModel::selected);
+    QVERIFY(listSpy.wait(3000));
+    listModel.addList(QStringLiteral("Target List"), QStringLiteral("#10b981"));
+    QTest::qWait(100);
+
+    QCOMPARE(listModel.rowCount(), 2);
+    QVariantMap secondList = listModel.get(1);
+    const QString secondListId = secondList.value(QStringLiteral("id")).toString();
+    QVERIFY(!secondListId.isEmpty());
+
+    TaskListModel taskModel;
+    QSignalSpy selectSpy(&taskModel, &AsyncSql::AsyncSqlBaseModel::selected);
+    taskModel.setListId(m_listId);
+    QVERIFY(selectSpy.wait(3000));
+
+    // Check otherLists()
+    QVariantList others = taskModel.otherLists();
+    QCOMPARE(others.count(), 1);
+    QCOMPARE(others.first().toMap().value(QStringLiteral("id")).toString(), secondListId);
+
+    // Add a task to the first list
+    taskModel.addTask(QStringLiteral("Task To Move"));
+    QCOMPARE(taskModel.rowCount(), 1);
+
+    // Move task to second list
+    QVERIFY(taskModel.moveToList(0, secondListId));
+    QCOMPARE(taskModel.rowCount(), 0);
+
+    QTest::qWait(100);
+
+    // Verify task is now in second list
+    TaskListModel targetTaskModel;
+    QSignalSpy targetSpy(&targetTaskModel, &AsyncSql::AsyncSqlBaseModel::selected);
+    targetTaskModel.setListId(secondListId);
+    QVERIFY(targetSpy.wait(3000));
+
+    QCOMPARE(targetTaskModel.rowCount(), 1);
+    QCOMPARE(targetTaskModel.data(targetTaskModel.index(0, 0), TaskListModel::TitleRole).toString(),
+             QStringLiteral("Task To Move"));
+
+    // Clean up
+    targetTaskModel.remove(0);
+    listModel.deleteList(1);
 }
 
 QTEST_MAIN(TestTaskListModel)
