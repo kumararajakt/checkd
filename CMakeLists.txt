@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(checkd)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(QT_QML_GENERATE_QMLLS_INI ON)
 
 find_package(ECM 6.0.0 REQUIRED NO_MODULE)
 set(CMAKE_MODULE_PATH ${ECM_MODULE_PATH})
@@ -73,6 +74,7 @@ if(GOOGLE_CLIENT_SECRET)
 endif()
 
 add_subdirectory(3rdparty/AsyncSql)
+qt6_extract_metatypes(asyncsql)
 
 add_subdirectory(src)
 add_subdirectory(tests)

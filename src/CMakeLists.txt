@@ -68,3 +68,14 @@ target_link_libraries(checkd
 )
 
 install(TARGETS checkd ${KDE_INSTALL_TARGETS_DEFAULT_ARGS})
+
+# Maintain symlinks to compiled QML module for qmllint and QML language server (qmlls)
+execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/org")
+execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_BINARY_DIR}/bin/org" "${CMAKE_SOURCE_DIR}/org")
+execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_BINARY_DIR}/bin/org" "${CMAKE_CURRENT_SOURCE_DIR}/qml/org")
+
+add_custom_command(TARGET checkd POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_BINARY_DIR}/bin/org" "${CMAKE_SOURCE_DIR}/org"
+    COMMAND ${CMAKE_COMMAND} -E create_symlink "${CMAKE_BINARY_DIR}/bin/org" "${CMAKE_CURRENT_SOURCE_DIR}/qml/org"
+    COMMENT "Updating QML module symlinks for qmllint / qmlls"
+)

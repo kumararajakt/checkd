@@ -7,6 +7,7 @@ import org.checkd
 
 Kirigami.ApplicationWindow {
     id: root
+    required property var systemTray
 
     width: Kirigami.Settings.isMobile ? -1 : Kirigami.Units.gridUnit * 65
     height: Kirigami.Settings.isMobile ? -1 : Kirigami.Units.gridUnit * 45
@@ -47,7 +48,7 @@ Kirigami.ApplicationWindow {
     }
 
     Connections {
-        target: systemTray
+        target: root.systemTray
         function onOpenSettingsRequested() {
             root.show();
             root.raise();

@@ -1,5 +1,6 @@
 #include "syncmanager.h"
 #include "databasemanager.h"
+#include "googleauth.h"
 
 #include <QDebug>
 #include <QDateTime>

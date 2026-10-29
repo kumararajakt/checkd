@@ -11,11 +11,8 @@
 #include "appsettings.h"
 #include "databasemanager.h"
 #include "notificationmanager.h"
-#include "sidebarlistmodel.h"
 #include "syncmanager.h"
 #include "systemtray.h"
-#include "tasklistmodel.h"
-#include "taskfilterproxymodel.h"
 
 int main(int argc, char *argv[])
 {
@@ -29,11 +26,6 @@ int main(int argc, char *argv[])
     app.setQuitOnLastWindowClosed(false);
 
     DatabaseManager::instance().initialize();
-    qmlRegisterType<SidebarListModel>("org.checkd", 1, 0, "SidebarListModel");
-    qmlRegisterType<TaskListModel>("org.checkd", 1, 0, "TaskListModel");
-    qmlRegisterType<TaskFilterProxyModel>("org.checkd", 1, 0, "TaskFilterProxyModel");
-    qmlRegisterSingletonInstance<AppSettings>("org.checkd", 1, 0, "AppSettings", &AppSettings::instance());
-    qmlRegisterSingletonInstance<SyncManager>("org.checkd", 1, 0, "SyncManager", &SyncManager::instance());
 
     QApplication::setStyle(QStringLiteral("breeze"));
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {

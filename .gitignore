@@ -33,6 +33,9 @@ build/
 *.qm
 *.prl
 *.qmlls.ini
+.qmlls.ini
+org
+src/qml/org
 
 # Qt unit tests
 target_wrapper.*

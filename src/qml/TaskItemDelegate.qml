@@ -7,7 +7,7 @@ import org.kde.kirigami as Kirigami
 import org.kde.kirigamiaddons.dateandtime as DateTime
 
 QQC2.ItemDelegate {
-    id: delegate
+    id: taskItemDelegate
 
     required property string title
     required property string description
@@ -18,33 +18,33 @@ QQC2.ItemDelegate {
     required property string repeatConfig
     required property int index
 
-    readonly property ListView parentView: delegate.ListView.view
+    readonly property ListView parentView: taskItemDelegate.ListView.view
     readonly property var taskModel: parentView ? parentView.model : null
 
     property bool expanded: false
     property bool isEditing: false
 
     function setModelProperty(propName: string, value: var) {
-        if (delegate.taskModel && typeof delegate.taskModel.setProperty === "function") {
-            delegate.taskModel.setProperty(delegate.index, propName, value);
+        if (taskItemDelegate.taskModel && typeof taskItemDelegate.taskModel.setProperty === "function") {
+            taskItemDelegate.taskModel.setProperty(taskItemDelegate.index, propName, value);
         }
     }
 
     function removeThis() {
-        if (delegate.taskModel && typeof delegate.taskModel.remove === "function") {
-            delegate.taskModel.remove(delegate.index);
+        if (taskItemDelegate.taskModel && typeof taskItemDelegate.taskModel.remove === "function") {
+            taskItemDelegate.taskModel.remove(taskItemDelegate.index);
         }
     }
 
     function moveToList(targetListId: string) {
-        if (delegate.taskModel && typeof delegate.taskModel.moveToList === "function") {
-            delegate.taskModel.moveToList(delegate.index, targetListId);
+        if (taskItemDelegate.taskModel && typeof taskItemDelegate.taskModel.moveToList === "function") {
+            taskItemDelegate.taskModel.moveToList(taskItemDelegate.index, targetListId);
         }
     }
 
     function startEditing() {
         isEditing = true;
-        editField.text = delegate.title;
+        editField.text = taskItemDelegate.title;
         Qt.callLater(() => {
             editField.forceActiveFocus();
             editField.selectAll();
@@ -54,10 +54,10 @@ QQC2.ItemDelegate {
     function saveEdit(newText: string) {
         newText = newText.trim();
         if (newText.length > 0) {
-            delegate.title = newText;
-            delegate.setModelProperty("title", newText);
+            taskItemDelegate.title = newText;
+            taskItemDelegate.setModelProperty("title", newText);
         }
-        delegate.isEditing = false;
+        taskItemDelegate.isEditing = false;
     }
 
     function isOverdue(dueDateStr: string, dueTimeStr: string): bool {
@@ -86,19 +86,19 @@ QQC2.ItemDelegate {
 
     function getRepeatDueInfo(): var {
         let cfg = null;
-        if (delegate.repeatConfig && delegate.repeatConfig.length > 0) {
+        if (taskItemDelegate.repeatConfig && taskItemDelegate.repeatConfig.length > 0) {
             try {
-                cfg = JSON.parse(delegate.repeatConfig);
+                cfg = JSON.parse(taskItemDelegate.repeatConfig);
             } catch (e) {
                 cfg = null;
             }
         }
 
-        let startDateStr = (cfg && cfg.startDate) ? cfg.startDate : (delegate.dueDate !== "" ? delegate.dueDate : Qt.formatDate(new Date(), "yyyy-MM-dd"));
-        let timeStr = (cfg && cfg.time) ? cfg.time : delegate.dueTime;
+        let startDateStr = (cfg && cfg.startDate) ? cfg.startDate : (taskItemDelegate.dueDate !== "" ? taskItemDelegate.dueDate : Qt.formatDate(new Date(), "yyyy-MM-dd"));
+        let timeStr = (cfg && cfg.time) ? cfg.time : taskItemDelegate.dueTime;
 
-        if (!timeStr && delegate.repeatRule) {
-            let match = delegate.repeatRule.match(/\bat\s+(\d{1,2}:\d{2})/i);
+        if (!timeStr && taskItemDelegate.repeatRule) {
+            let match = taskItemDelegate.repeatRule.match(/\bat\s+(\d{1,2}:\d{2})/i);
             if (match && match[1]) {
                 timeStr = match[1];
             }
@@ -133,7 +133,7 @@ QQC2.ItemDelegate {
 
         let firstDueFormattedDate = Qt.formatDate(firstDue, "yyyy-MM-dd");
         let displayText = timeStr !== "" ? (firstDueFormattedDate + "  " + timeStr) : firstDueFormattedDate;
-        let overdue = !delegate.isCompleted && (firstDue.getTime() < Date.now());
+        let overdue = !taskItemDelegate.isCompleted && (firstDue.getTime() < Date.now());
 
         return {
             date: firstDueFormattedDate,
@@ -191,14 +191,14 @@ QQC2.ItemDelegate {
 
     function advanceToNextOccurrence() {
         let cfg = null;
-        if (delegate.repeatConfig && delegate.repeatConfig.length > 0) {
+        if (taskItemDelegate.repeatConfig && taskItemDelegate.repeatConfig.length > 0) {
             try {
-                cfg = JSON.parse(delegate.repeatConfig);
+                cfg = JSON.parse(taskItemDelegate.repeatConfig);
             } catch (e) {
                 cfg = null;
             }
         }
-        let dueInfo = delegate.getRepeatDueInfo();
+        let dueInfo = taskItemDelegate.getRepeatDueInfo();
         let curDueDate = dueInfo.date;
         let timeStr = dueInfo.time;
 
@@ -242,12 +242,12 @@ QQC2.ItemDelegate {
         if (cfg) {
             cfg.startDate = formattedNextDate;
             let cfgStr = JSON.stringify(cfg);
-            delegate.repeatConfig = cfgStr;
-            delegate.setModelProperty("repeatConfig", cfgStr);
+            taskItemDelegate.repeatConfig = cfgStr;
+            taskItemDelegate.setModelProperty("repeatConfig", cfgStr);
         }
-        delegate.dueDate = formattedNextDate;
-        delegate.setModelProperty("dueDate", formattedNextDate);
-        delegate.setModelProperty("isCompleted", false);
+        taskItemDelegate.dueDate = formattedNextDate;
+        taskItemDelegate.setModelProperty("dueDate", formattedNextDate);
+        taskItemDelegate.setModelProperty("isCompleted", false);
         checkBox.checked = false;
     }
 
@@ -271,13 +271,13 @@ QQC2.ItemDelegate {
 
             QQC2.CheckBox {
                 id: checkBox
-                checked: delegate.isCompleted
+                checked: taskItemDelegate.isCompleted
                 onToggled: {
-                    if (checked && delegate.repeatRule !== "") {
-                        delegate.advanceToNextOccurrence();
+                    if (checked && taskItemDelegate.repeatRule !== "") {
+                        taskItemDelegate.advanceToNextOccurrence();
                     } else {
-                        delegate.isCompleted = checked;
-                        delegate.setModelProperty("isCompleted", checked);
+                        taskItemDelegate.isCompleted = checked;
+                        taskItemDelegate.setModelProperty("isCompleted", checked);
                     }
                 }
             }
@@ -287,7 +287,7 @@ QQC2.ItemDelegate {
                 implicitWidth: Kirigami.Units.iconSizes.small
                 implicitHeight: Kirigami.Units.iconSizes.small
                 source: "go-next"
-                rotation: delegate.expanded ? 90 : 0
+                rotation: taskItemDelegate.expanded ? 90 : 0
                 opacity: 0.7
 
                 Behavior on rotation {
@@ -298,32 +298,32 @@ QQC2.ItemDelegate {
             }
 
             QQC2.Label {
-                visible: !delegate.isEditing
-                text: delegate.title
+                visible: !taskItemDelegate.isEditing
+                text: taskItemDelegate.title
                 Layout.fillWidth: true
                 elide: Text.ElideRight
-                font.strikeout: delegate.isCompleted
-                font.italic: delegate.isCompleted
-                opacity: delegate.isCompleted ? 0.6 : 1.0
+                font.strikeout: taskItemDelegate.isCompleted
+                font.italic: taskItemDelegate.isCompleted
+                opacity: taskItemDelegate.isCompleted ? 0.6 : 1.0
             }
 
 
 
             QQC2.TextField {
                 id: editField
-                visible: delegate.isEditing
+                visible: taskItemDelegate.isEditing
                 Layout.fillWidth: true
-                text: delegate.title
+                text: taskItemDelegate.title
                 selectByMouse: true
 
-                onAccepted: delegate.saveEdit(text)
+                onAccepted: taskItemDelegate.saveEdit(text)
                 Keys.onEscapePressed: {
-                    text = delegate.title;
-                    delegate.isEditing = false;
+                    text = taskItemDelegate.title;
+                    taskItemDelegate.isEditing = false;
                 }
                 onActiveFocusChanged: {
-                    if (!activeFocus && delegate.isEditing) {
-                        delegate.saveEdit(text);
+                    if (!activeFocus && taskItemDelegate.isEditing) {
+                        taskItemDelegate.saveEdit(text);
                     }
                 }
             }
@@ -331,33 +331,33 @@ QQC2.ItemDelegate {
 
         RowLayout {
             id: chipsRow
-            visible: !delegate.isCompleted && !delegate.isEditing && !delegate.expanded && (delegate.dueDate !== "" || delegate.repeatRule !== "")
+            visible: !taskItemDelegate.isCompleted && !taskItemDelegate.isEditing && !taskItemDelegate.expanded && (taskItemDelegate.dueDate !== "" || taskItemDelegate.repeatRule !== "")
             Layout.leftMargin: checkBox.width + arrowIcon.width + Kirigami.Units.smallSpacing * 2
             spacing: Kirigami.Units.smallSpacing
 
             Kirigami.Chip {
                 id: dueChip
 
-                readonly property var repeatDueInfo: delegate.repeatRule !== "" ? delegate.getRepeatDueInfo() : null
-                readonly property bool isOverdue: !delegate.isCompleted && (repeatDueInfo ? Boolean(repeatDueInfo.isOverdue) : delegate.isOverdue(delegate.dueDate, delegate.dueTime))
+                readonly property var repeatDueInfo: taskItemDelegate.repeatRule !== "" ? taskItemDelegate.getRepeatDueInfo() : null
+                readonly property bool isOverdue: !taskItemDelegate.isCompleted && (repeatDueInfo ? Boolean(repeatDueInfo.isOverdue) : taskItemDelegate.isOverdue(taskItemDelegate.dueDate, taskItemDelegate.dueTime))
 
                 text: {
-                    if (delegate.repeatRule !== "" && repeatDueInfo) {
-                        return delegate.formatDueLabel(repeatDueInfo.date, repeatDueInfo.time);
-                    } else if (delegate.dueDate !== "") {
-                        return delegate.formatDueLabel(delegate.dueDate, delegate.dueTime);
+                    if (taskItemDelegate.repeatRule !== "" && repeatDueInfo) {
+                        return taskItemDelegate.formatDueLabel(repeatDueInfo.date, repeatDueInfo.time);
+                    } else if (taskItemDelegate.dueDate !== "") {
+                        return taskItemDelegate.formatDueLabel(taskItemDelegate.dueDate, taskItemDelegate.dueTime);
                     }
                     return "";
                 }
 
-                icon.name: delegate.repeatRule !== "" ? "media-playlist-repeat" : "view-calendar"
+                icon.name: taskItemDelegate.repeatRule !== "" ? "media-playlist-repeat" : "view-calendar"
                 icon.color: isOverdue ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
                 labelItem.color: isOverdue ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.textColor
 
                 interactive: false
 
-                QQC2.ToolTip.text: delegate.repeatRule !== "" ? delegate.repeatRule : ""
-                QQC2.ToolTip.visible: delegate.repeatRule !== "" && dueChipHover.hovered
+                QQC2.ToolTip.text: taskItemDelegate.repeatRule !== "" ? taskItemDelegate.repeatRule : ""
+                QQC2.ToolTip.visible: taskItemDelegate.repeatRule !== "" && dueChipHover.hovered
 
                 HoverHandler {
                     id: dueChipHover
@@ -375,7 +375,7 @@ QQC2.ItemDelegate {
         // ── Accordion Description Content ───────────────────────────────
         ColumnLayout {
             id: descContainer
-            visible: delegate.expanded
+            visible: taskItemDelegate.expanded
             Layout.fillWidth: true
             Layout.leftMargin: checkBox.width + arrowIcon.width + Kirigami.Units.smallSpacing * 2
             Layout.rightMargin: Kirigami.Units.smallSpacing
@@ -390,13 +390,13 @@ QQC2.ItemDelegate {
                 QQC2.Button {
                     id: dueDateButton
                     icon.name: "view-calendar"
-                    text: delegate.dueDate !== "" ? qsTr("Due: %1").arg(delegate.dueDate) : qsTr("Set Due Date")
+                    text: taskItemDelegate.dueDate !== "" ? qsTr("Due: %1").arg(taskItemDelegate.dueDate) : qsTr("Set Due Date")
                     onClicked: {
                         datePopupLoader.active = true;
                         let popup = datePopupLoader.item as DateTime.DatePopup;
                         if (popup) {
-                            if (delegate.dueDate !== "") {
-                                popup.value = new Date(delegate.dueDate);
+                            if (taskItemDelegate.dueDate !== "") {
+                                popup.value = new Date(taskItemDelegate.dueDate);
                             } else {
                                 popup.value = new Date();
                             }
@@ -407,16 +407,16 @@ QQC2.ItemDelegate {
 
                 QQC2.Button {
                     id: dueTimeButton
-                    visible: delegate.dueDate !== ""
+                    visible: taskItemDelegate.dueDate !== ""
                     icon.name: "preferences-system-time"
-                    text: delegate.dueTime !== "" ? delegate.dueTime : qsTr("Set Time")
+                    text: taskItemDelegate.dueTime !== "" ? taskItemDelegate.dueTime : qsTr("Set Time")
                     onClicked: {
                         timePopupLoader.active = true;
                         let popup = timePopupLoader.item as DateTime.TimePopup;
                         if (popup) {
                             let now = new Date();
-                            if (delegate.dueTime !== "") {
-                                let parts = delegate.dueTime.split(":");
+                            if (taskItemDelegate.dueTime !== "") {
+                                let parts = taskItemDelegate.dueTime.split(":");
                                 if (parts.length >= 2) {
                                     now.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10), 0);
                                 }
@@ -428,28 +428,28 @@ QQC2.ItemDelegate {
                 }
 
                 QQC2.ToolButton {
-                    visible: delegate.dueDate !== "" && delegate.dueTime !== ""
+                    visible: taskItemDelegate.dueDate !== "" && taskItemDelegate.dueTime !== ""
                     icon.name: "edit-clear"
                     flat: true
                     QQC2.ToolTip.text: qsTr("Clear Time")
                     QQC2.ToolTip.visible: hovered
                     onClicked: {
-                        delegate.dueTime = "";
-                        delegate.setModelProperty("dueTime", "");
+                        taskItemDelegate.dueTime = "";
+                        taskItemDelegate.setModelProperty("dueTime", "");
                     }
                 }
 
                 QQC2.ToolButton {
-                    visible: delegate.dueDate !== ""
+                    visible: taskItemDelegate.dueDate !== ""
                     icon.name: "edit-delete"
                     flat: true
                     QQC2.ToolTip.text: qsTr("Clear Due Date")
                     QQC2.ToolTip.visible: hovered
                     onClicked: {
-                        delegate.dueDate = "";
-                        delegate.dueTime = "";
-                        delegate.setModelProperty("dueDate", "");
-                        delegate.setModelProperty("dueTime", "");
+                        taskItemDelegate.dueDate = "";
+                        taskItemDelegate.dueTime = "";
+                        taskItemDelegate.setModelProperty("dueDate", "");
+                        taskItemDelegate.setModelProperty("dueTime", "");
                     }
                 }
             }
@@ -459,13 +459,13 @@ QQC2.ItemDelegate {
             QQC2.TextArea {
                 id: descTextArea
                 Layout.fillWidth: true
-                text: delegate.description
+                text: taskItemDelegate.description
                 placeholderText: qsTr("Add description…")
                 wrapMode: TextEdit.WordWrap
                 selectByMouse: true
 
                 onEditingFinished: {
-                    delegate.setModelProperty("description", text);
+                    taskItemDelegate.setModelProperty("description", text);
                 }
             }
 
@@ -475,15 +475,15 @@ QQC2.ItemDelegate {
 
                 QQC2.Button {
                     id: repeatBtn
-                    text: delegate.repeatRule !== "" ? delegate.repeatRule : qsTr("Repeat")
+                    text: taskItemDelegate.repeatRule !== "" ? taskItemDelegate.repeatRule : qsTr("Repeat")
                     icon.name: "media-playlist-repeat"
                     onClicked: {
                         repeatDialogLoader.active = true;
                         let dlg = repeatDialogLoader.item as RepeatDialog;
                         if (dlg) {
-                            if (delegate.repeatConfig && delegate.repeatConfig.length > 0) {
+                            if (taskItemDelegate.repeatConfig && taskItemDelegate.repeatConfig.length > 0) {
                                 try {
-                                    dlg.loadConfig(JSON.parse(delegate.repeatConfig));
+                                    dlg.loadConfig(JSON.parse(taskItemDelegate.repeatConfig));
                                 } catch (e) {}
                             }
                             dlg.open();
@@ -492,16 +492,16 @@ QQC2.ItemDelegate {
                 }
 
                 QQC2.ToolButton {
-                    visible: delegate.repeatRule !== ""
+                    visible: taskItemDelegate.repeatRule !== ""
                     icon.name: "edit-clear"
                     flat: true
                     QQC2.ToolTip.text: qsTr("Clear Repeat")
                     QQC2.ToolTip.visible: hovered
                     onClicked: {
-                        delegate.repeatRule = "";
-                        delegate.repeatConfig = "";
-                        delegate.setModelProperty("repeatRule", "");
-                        delegate.setModelProperty("repeatConfig", "");
+                        taskItemDelegate.repeatRule = "";
+                        taskItemDelegate.repeatConfig = "";
+                        taskItemDelegate.setModelProperty("repeatRule", "");
+                        taskItemDelegate.setModelProperty("repeatConfig", "");
                     }
                 }
             }
@@ -529,15 +529,15 @@ QQC2.ItemDelegate {
             property var otherLists: []
 
             Component.onCompleted: {
-                if (delegate.taskModel && typeof delegate.taskModel.otherLists === "function") {
-                    otherLists = delegate.taskModel.otherLists();
+                if (taskItemDelegate.taskModel && typeof taskItemDelegate.taskModel.otherLists === "function") {
+                    otherLists = taskItemDelegate.taskModel.otherLists();
                 }
             }
 
             QQC2.MenuItem {
                 text: qsTr("Edit")
                 icon.name: "document-edit"
-                onTriggered: delegate.startEditing()
+                onTriggered: taskItemDelegate.startEditing()
             }
 
             QQC2.Menu {
@@ -554,7 +554,7 @@ QQC2.ItemDelegate {
                         icon.name: "folder"
                         onTriggered: {
                             if (modelData && modelData.id) {
-                                delegate.moveToList(modelData.id);
+                                taskItemDelegate.moveToList(modelData.id);
                             }
                         }
                     }
@@ -566,7 +566,7 @@ QQC2.ItemDelegate {
             QQC2.MenuItem {
                 text: qsTr("Delete")
                 icon.name: "edit-delete"
-                onTriggered: delegate.removeThis()
+                onTriggered: taskItemDelegate.removeThis()
             }
         }
     }
@@ -582,8 +582,8 @@ QQC2.ItemDelegate {
             onAccepted: {
                 let d = value;
                 let formatted = Qt.formatDate(d, "yyyy-MM-dd");
-                delegate.dueDate = formatted;
-                delegate.setModelProperty("dueDate", formatted);
+                taskItemDelegate.dueDate = formatted;
+                taskItemDelegate.setModelProperty("dueDate", formatted);
                 close();
             }
         }
@@ -599,8 +599,8 @@ QQC2.ItemDelegate {
             onAccepted: {
                 let t = value;
                 let formattedTime = Qt.formatTime(t, "hh:mm");
-                delegate.dueTime = formattedTime;
-                delegate.setModelProperty("dueTime", formattedTime);
+                taskItemDelegate.dueTime = formattedTime;
+                taskItemDelegate.setModelProperty("dueTime", formattedTime);
             }
         }
     }
@@ -613,18 +613,18 @@ QQC2.ItemDelegate {
             x: parent ? Math.round((parent.width - width) / 2) : 0
             y: parent ? Math.round((parent.height - height) / 2) : 0
             onRepeatSaved: (summary, config) => {
-                delegate.repeatRule = summary;
+                taskItemDelegate.repeatRule = summary;
                 let cfgStr = JSON.stringify(config);
-                delegate.repeatConfig = cfgStr;
-                delegate.setModelProperty("repeatRule", summary);
-                delegate.setModelProperty("repeatConfig", cfgStr);
+                taskItemDelegate.repeatConfig = cfgStr;
+                taskItemDelegate.setModelProperty("repeatRule", summary);
+                taskItemDelegate.setModelProperty("repeatConfig", cfgStr);
                 if (config && config.startDate) {
-                    delegate.dueDate = config.startDate;
-                    delegate.setModelProperty("dueDate", config.startDate);
+                    taskItemDelegate.dueDate = config.startDate;
+                    taskItemDelegate.setModelProperty("dueDate", config.startDate);
                 }
                 if (config && config.time) {
-                    delegate.dueTime = config.time;
-                    delegate.setModelProperty("dueTime", config.time);
+                    taskItemDelegate.dueTime = config.time;
+                    taskItemDelegate.setModelProperty("dueTime", config.time);
                 }
             }
         }

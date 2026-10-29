@@ -4,12 +4,15 @@
 #include <QObject>
 #include <QString>
 #include <QDateTime>
-#include "googleauth.h"
+#include <QtQml/qqmlregistration.h>
+#include <QQmlEngine>
 #include "googlecalendarservice.h"
 
 class SyncManager : public QObject
 {
     Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
     Q_PROPERTY(bool available READ isAvailable CONSTANT)
     Q_PROPERTY(bool signedIn READ isSignedIn NOTIFY signedInChanged)
     Q_PROPERTY(QString accountEmail READ accountEmail NOTIFY accountEmailChanged)
@@ -19,6 +22,11 @@ class SyncManager : public QObject
 
 public:
     static SyncManager &instance();
+    static SyncManager *create(QQmlEngine *, QJSEngine *)
+    {
+        QQmlEngine::setObjectOwnership(&instance(), QQmlEngine::CppOwnership);
+        return &instance();
+    }
 
     explicit SyncManager(QObject *parent = nullptr);
     ~SyncManager() override = default;
