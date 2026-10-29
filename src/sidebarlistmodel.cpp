@@ -1,4 +1,5 @@
 #include "sidebarlistmodel.h"
+#include "syncmanager.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -21,6 +22,7 @@ SidebarListModel::SidebarListModel(QObject *parent)
     connect(this, &QAbstractItemModel::modelReset, this, &SidebarListModel::countChanged);
     connect(this, &QAbstractItemModel::rowsInserted, this, &SidebarListModel::countChanged);
     connect(this, &QAbstractItemModel::rowsRemoved, this, &SidebarListModel::countChanged);
+    connect(&SyncManager::instance(), &SyncManager::dataReloadRequested, this, &SidebarListModel::reload);
 
     select();
 }

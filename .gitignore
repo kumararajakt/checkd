@@ -64,3 +64,7 @@ repo/
 # AppImage build artifacts
 build-appimage/
 *.AppImage
+
+# Environment & secrets
+.env
+.env.*

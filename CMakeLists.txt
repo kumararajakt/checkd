@@ -20,6 +20,7 @@ find_package(Qt6 REQUIRED COMPONENTS
     QuickControls2
     Widgets
     Sql
+    Network
 )
 
 find_package(KF6 REQUIRED COMPONENTS
@@ -38,6 +39,39 @@ ecm_find_qmlmodule(org.kde.kirigamiaddons.formcard REQUIRED)
 
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+
+# Read Google OAuth credentials from .env or environment if present
+if(EXISTS "${CMAKE_SOURCE_DIR}/.env")
+    file(STRINGS "${CMAKE_SOURCE_DIR}/.env" ENV_LINES)
+    foreach(line ${ENV_LINES})
+        string(STRIP "${line}" line)
+        if(line MATCHES "^CLIENT_ID[ \t]*=[ \t]*['\"]?([^'\"]+)['\"]?")
+            set(ENV_CLIENT_ID "${CMAKE_MATCH_1}")
+        elseif(line MATCHES "^CLIENT_SECRET[ \t]*=[ \t]*['\"]?([^'\"]+)['\"]?")
+            set(ENV_CLIENT_SECRET "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+endif()
+
+if(NOT GOOGLE_CLIENT_ID AND ENV_CLIENT_ID)
+    set(GOOGLE_CLIENT_ID "${ENV_CLIENT_ID}")
+elseif(NOT GOOGLE_CLIENT_ID AND DEFINED ENV{CLIENT_ID})
+    set(GOOGLE_CLIENT_ID "$ENV{CLIENT_ID}")
+endif()
+
+if(NOT GOOGLE_CLIENT_SECRET AND ENV_CLIENT_SECRET)
+    set(GOOGLE_CLIENT_SECRET "${ENV_CLIENT_SECRET}")
+elseif(NOT GOOGLE_CLIENT_SECRET AND DEFINED ENV{CLIENT_SECRET})
+    set(GOOGLE_CLIENT_SECRET "$ENV{CLIENT_SECRET}")
+endif()
+
+if(GOOGLE_CLIENT_ID)
+    add_compile_definitions(CHECKD_GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID}")
+endif()
+if(GOOGLE_CLIENT_SECRET)
+    add_compile_definitions(CHECKD_GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET}")
+endif()
+
 add_subdirectory(3rdparty/AsyncSql)
 
 add_subdirectory(src)

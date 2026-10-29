@@ -113,10 +113,31 @@ Kirigami.ScrollablePage {
         delegate: SidebarListDelegate {}
     }
 
-    footer: QQC2.ItemDelegate {
+    footer: RowLayout {
         width: parent ? parent.width : 0
-        text: qsTr("Settings")
-        icon.name: "settings-configure"
-        onClicked: sidebarView.openSettingsRequested()
+        spacing: 0
+
+        QQC2.ItemDelegate {
+            Layout.fillWidth: true
+            text: qsTr("Settings")
+            icon.name: "settings-configure"
+            onClicked: sidebarView.openSettingsRequested()
+        }
+
+        QQC2.ToolButton {
+            visible: SyncManager.available && SyncManager.signedIn
+            icon.name: "view-refresh"
+            enabled: !SyncManager.syncing
+            QQC2.ToolTip.text: SyncManager.syncing ? qsTr("Syncing…") : qsTr("Sync with Google")
+            QQC2.ToolTip.visible: hovered
+            onClicked: SyncManager.sync()
+            RotationAnimator on rotation {
+                running: SyncManager.syncing
+                from: 0
+                to: 360
+                loops: Animation.Infinite
+                duration: 1000
+            }
+        }
     }
 }

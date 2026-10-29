@@ -2,6 +2,9 @@ add_executable(tst_sidebarlistmodel
     tst_sidebarlistmodel.cpp
     ../src/databasemanager.cpp
     ../src/sidebarlistmodel.cpp
+    ../src/googleauth.cpp
+    ../src/googlecalendarservice.cpp
+    ../src/syncmanager.cpp
 )
 
 target_include_directories(tst_sidebarlistmodel PRIVATE
@@ -12,9 +15,11 @@ target_compile_options(tst_sidebarlistmodel PRIVATE -fexceptions)
 
 target_link_libraries(tst_sidebarlistmodel PRIVATE
     Qt6::Core
+    Qt6::Gui
     Qt6::Test
     Qt6::Sql
     Qt6::Qml
+    Qt6::Network
     asyncsql
 )
 
@@ -26,6 +31,9 @@ add_executable(tst_tasklistmodel
     ../src/sidebarlistmodel.cpp
     ../src/tasklistmodel.cpp
     ../src/notificationmanager.cpp
+    ../src/googleauth.cpp
+    ../src/googlecalendarservice.cpp
+    ../src/syncmanager.cpp
 )
 
 target_include_directories(tst_tasklistmodel PRIVATE
@@ -36,9 +44,11 @@ target_compile_options(tst_tasklistmodel PRIVATE -fexceptions)
 
 target_link_libraries(tst_tasklistmodel PRIVATE
     Qt6::Core
+    Qt6::Gui
     Qt6::Test
     Qt6::Sql
     Qt6::Qml
+    Qt6::Network
     KF6::I18n
     KF6::Notifications
     asyncsql
@@ -94,3 +104,29 @@ target_link_libraries(tst_appsettings PRIVATE
 )
 
 add_test(NAME tst_appsettings COMMAND tst_appsettings)
+
+add_executable(tst_syncmanager
+    tst_syncmanager.cpp
+    ../src/databasemanager.cpp
+    ../src/googleauth.cpp
+    ../src/googlecalendarservice.cpp
+    ../src/syncmanager.cpp
+)
+
+target_include_directories(tst_syncmanager PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_compile_options(tst_syncmanager PRIVATE -fexceptions)
+
+target_link_libraries(tst_syncmanager PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Test
+    Qt6::Sql
+    Qt6::Qml
+    Qt6::Network
+    asyncsql
+)
+
+add_test(NAME tst_syncmanager COMMAND tst_syncmanager)

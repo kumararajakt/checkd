@@ -20,12 +20,20 @@ target_sources(checkd
     notificationmanager.h
     appsettings.cpp
     appsettings.h
+    googleauth.cpp
+    googleauth.h
+    googlecalendarservice.cpp
+    googlecalendarservice.h
+    syncmanager.cpp
+    syncmanager.h
 )
 
 target_compile_options(checkd
     PRIVATE
     -fexceptions
 )
+
+
 
 ecm_target_qml_sources(checkd
     SOURCES
@@ -37,6 +45,7 @@ ecm_target_qml_sources(checkd
     qml/TaskItemDelegate.qml
     qml/RepeatDialog.qml
     qml/GeneralSettingsPage.qml
+    qml/GoogleSyncPage.qml
 )
 
 target_link_libraries(checkd
@@ -47,6 +56,7 @@ target_link_libraries(checkd
     Qt6::QuickControls2
     Qt6::Widgets
     Qt6::Sql
+    Qt6::Network
     KF6::I18n
     KF6::CoreAddons
     KF6::IconThemes

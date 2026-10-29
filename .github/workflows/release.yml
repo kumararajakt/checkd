@@ -145,7 +145,7 @@ jobs:
           DEPLOY_PLATFORM_THEMES: 1
           EXTRA_PLATFORM_PLUGINS: "libqwayland.so;libqoffscreen.so"
           QML_SOURCES_PATHS: ${{ github.workspace }}/src/qml
-          EXTRA_QT_MODULES: "core;gui;quick;widgets;sql;svg;quickcontrols2"
+          EXTRA_QT_MODULES: "core;gui;quick;widgets;sql;svg;quickcontrols2;network"
         run: |
           cat << 'EOF' > AppRun
           #!/bin/bash

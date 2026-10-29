@@ -18,18 +18,32 @@ Kirigami.ApplicationWindow {
         GeneralSettingsPage {}
     }
 
+    Component {
+        id: googleSyncSettingsComponent
+        GoogleSyncPage {}
+    }
+
+    KirigamiSettings.ConfigurationModule {
+        id: generalModule
+        moduleId: "general"
+        text: qsTr("General")
+        icon.name: "settings-configure"
+        page: () => generalSettingsComponent
+    }
+
+    KirigamiSettings.ConfigurationModule {
+        id: googleSyncModule
+        moduleId: "googlesync"
+        text: qsTr("Google Sync")
+        icon.name: "view-refresh"
+        page: () => googleSyncSettingsComponent
+    }
+
     KirigamiSettings.ConfigurationView {
         id: configView
         window: root
 
-        modules: [
-            KirigamiSettings.ConfigurationModule {
-                moduleId: "general"
-                text: qsTr("General")
-                icon.name: "settings-configure"
-                page: () => generalSettingsComponent
-            }
-        ]
+        modules: SyncManager.available ? [generalModule, googleSyncModule] : [generalModule]
     }
 
     Connections {

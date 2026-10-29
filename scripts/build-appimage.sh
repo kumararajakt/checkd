@@ -103,7 +103,7 @@ export NO_STRIP=1
 export DEPLOY_PLATFORM_THEMES=1
 export EXTRA_PLATFORM_PLUGINS="libqwayland.so;libqoffscreen.so"
 export QML_SOURCES_PATHS="$(pwd)/src/qml"
-export EXTRA_QT_MODULES="core;gui;quick;widgets;sql;svg;quickcontrols2"
+export EXTRA_QT_MODULES="core;gui;quick;widgets;sql;svg;quickcontrols2;network"
 
 cat << 'EOF' > "${BUILD_DIR}/AppRun"
 #!/bin/bash

@@ -12,6 +12,7 @@
 #include "databasemanager.h"
 #include "notificationmanager.h"
 #include "sidebarlistmodel.h"
+#include "syncmanager.h"
 #include "systemtray.h"
 #include "tasklistmodel.h"
 
@@ -30,6 +31,7 @@ int main(int argc, char *argv[])
     qmlRegisterType<SidebarListModel>("org.checkd", 1, 0, "SidebarListModel");
     qmlRegisterType<TaskListModel>("org.checkd", 1, 0, "TaskListModel");
     qmlRegisterSingletonInstance<AppSettings>("org.checkd", 1, 0, "AppSettings", &AppSettings::instance());
+    qmlRegisterSingletonInstance<SyncManager>("org.checkd", 1, 0, "SyncManager", &SyncManager::instance());
 
     QApplication::setStyle(QStringLiteral("breeze"));
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
@@ -54,7 +56,12 @@ int main(int argc, char *argv[])
 
     NotificationManager::instance().setAssociatedWindow(mainWindow);
     engine.rootContext()->setContextProperty(QStringLiteral("notificationManager"), &NotificationManager::instance());
+    engine.rootContext()->setContextProperty(QStringLiteral("syncManager"), &SyncManager::instance());
     NotificationManager::instance().checkNotifications();
+
+    if (SyncManager::instance().isSignedIn()) {
+        QTimer::singleShot(1000, &SyncManager::instance(), &SyncManager::sync);
+    }
 
     return app.exec();
 }
