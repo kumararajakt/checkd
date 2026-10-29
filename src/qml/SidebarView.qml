@@ -21,9 +21,7 @@ Kirigami.ScrollablePage {
         if (_updateTrigger < 0) {
             return null;
         }
-        return (currentIndex >= 0 && currentIndex < navList.count && navList.model)
-            ? navList.model.get(currentIndex)
-            : null;
+        return (currentIndex >= 0 && currentIndex < navList.count && navList.model) ? navList.model.get(currentIndex) : null;
     }
 
     function restoreSelection() {
@@ -55,20 +53,36 @@ Kirigami.ScrollablePage {
     }
 
     function focusNewList() {
+        sidebarHeader.showAddList = true;
         addListField.forceActiveFocus();
     }
 
     // ── Add list ─────────────────────────────────────────────────────────
 
     header: Kirigami.AbstractApplicationHeader {
+        id: sidebarHeader
+        property bool showAddList: false
 
-        QQC2.ItemDelegate {
+        RowLayout {
+            id: headerRow
+            spacing: Kirigami.Units.smallSpacing
             width: parent.width
 
-            contentItem: Kirigami.ActionTextField {
-                id: addListField
-                placeholderText: qsTr("New List")
+            Item {
                 Layout.fillWidth: true
+            }
+
+            Kirigami.ActionTextField {
+                id: addListField
+                visible: sidebarHeader.showAddList
+                Layout.fillWidth: true
+                placeholderText: qsTr("New List")
+
+                onVisibleChanged: {
+                    if (visible) {
+                        forceActiveFocus();
+                    }
+                }
 
                 leftActions: [
                     Kirigami.Action {
@@ -77,13 +91,42 @@ Kirigami.ScrollablePage {
                     }
                 ]
 
+                rightActions: [
+                    Kirigami.Action {
+                        icon.name: "dialog-close"
+                        tooltip: qsTr("Cancel")
+                        onTriggered: {
+                            addListField.text = "";
+                            sidebarHeader.showAddList = false;
+                        }
+                    }
+                ]
+
+                Keys.onEscapePressed: {
+                    addListField.text = "";
+                    sidebarHeader.showAddList = false;
+                }
+
                 onAccepted: {
                     if (text.trim().length > 0) {
                         sidebarModel.addList(text.trim());
                         text = "";
                         navList.currentIndex = navList.count - 1;
+                        sidebarHeader.showAddList = false;
                     }
                 }
+            }
+
+            QQC2.ToolButton {
+                id: addListBtn
+                icon.name: "list-add"
+                text: qsTr("Add List")
+                visible: !sidebarHeader.showAddList
+                display: QQC2.AbstractButton.TextBesideIcon
+                QQC2.ToolTip.text: text
+                QQC2.ToolTip.visible: hovered
+
+                onClicked: sidebarHeader.showAddList = true
             }
         }
     }
