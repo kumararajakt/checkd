@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=CheckD
+Comment=Task and Todo Manager
+Exec=checkd
+Icon=com.kumar.checkd
+Type=Application
+Terminal=false
+Categories=Utility;Office;ProjectManagement;
+StartupWMClass=checkd

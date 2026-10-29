@@ -1,0 +1,35 @@
+app-id: com.kumar.checkd
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+command: checkd
+
+finish-args:
+  # Display & Graphics
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+
+  # Desktop Notifications
+  - --talk-name=org.freedesktop.Notifications
+
+  # StatusNotifier / System Tray
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --talk-name=org.freedesktop.StatusNotifierWatcher
+  - --filesystem=xdg-data/icons:ro
+  - --filesystem=xdg-run/tray-icon:create
+  - --filesystem=xdg-run/appindicator:create
+
+  # Autostart desktop entry access
+  - --filesystem=xdg-config/autostart:create
+
+modules:
+  - name: checkd
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DBUILD_TESTING=OFF
+    sources:
+      - type: dir
+        path: ..

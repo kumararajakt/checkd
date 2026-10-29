@@ -171,8 +171,8 @@ void NotificationManager::ensureNotifyRcExists()
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         static const char notifyRcContent[] =
             "[Global]\n"
-            "IconName=checkd\n"
-            "DesktopEntry=checkd\n"
+            "IconName=com.kumar.checkd\n"
+            "DesktopEntry=com.kumar.checkd\n"
             "Name=CheckD\n"
             "Comment=CheckD task manager\n"
             "\n"
@@ -201,7 +201,10 @@ void NotificationManager::sendNotification(const QString &taskId, const QString 
     notification->setComponentName(QStringLiteral("checkd"));
     notification->setTitle(title.isEmpty() ? i18n("CheckD Task") : title);
     notification->setText(body);
-    notification->setIconName(QIcon::hasThemeIcon(QStringLiteral("checkd")) ? QStringLiteral("checkd") : QStringLiteral("checkbox"));
+    const QString iconName = QIcon::hasThemeIcon(QStringLiteral("com.kumar.checkd"))
+        ? QStringLiteral("com.kumar.checkd")
+        : (QIcon::hasThemeIcon(QStringLiteral("checkd")) ? QStringLiteral("checkd") : QStringLiteral("checkbox"));
+    notification->setIconName(iconName);
 
     KNotificationAction *defaultAction = notification->addDefaultAction(i18n("Open CheckD"));
     connect(defaultAction, &KNotificationAction::activated, this, [this]() {

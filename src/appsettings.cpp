@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QIcon>
 #include <QStandardPaths>
 #include <QTextStream>
 
@@ -102,11 +103,22 @@ void AppSettings::writeAutostartFile(bool enabled)
             dir.mkpath(QStringLiteral("."));
         }
 
-        QString execPath = QStandardPaths::findExecutable(QStringLiteral("checkd"));
-        if (execPath.isEmpty()) {
-            execPath = QCoreApplication::applicationFilePath();
+        const bool isFlatpak = qEnvironmentVariableIsSet("FLATPAK_ID") || QFile::exists(QStringLiteral("/.flatpak-info"));
+        QString execPath;
+        QString iconName;
+        if (isFlatpak) {
+            execPath = QStringLiteral("flatpak run com.kumar.checkd");
+            iconName = QStringLiteral("com.kumar.checkd");
         } else {
-            execPath = QStringLiteral("checkd");
+            execPath = QStandardPaths::findExecutable(QStringLiteral("checkd"));
+            if (execPath.isEmpty()) {
+                execPath = QCoreApplication::applicationFilePath();
+            } else {
+                execPath = QStringLiteral("checkd");
+            }
+            iconName = QIcon::hasThemeIcon(QStringLiteral("com.kumar.checkd"))
+                ? QStringLiteral("com.kumar.checkd")
+                : (QIcon::hasThemeIcon(QStringLiteral("checkd")) ? QStringLiteral("checkd") : QStringLiteral("checkbox"));
         }
 
         QFile file(filePath);
@@ -117,7 +129,7 @@ void AppSettings::writeAutostartFile(bool enabled)
             out << "Name=CheckD\n";
             out << "Comment=Task & Todo Manager\n";
             out << "Exec=" << execPath << "\n";
-            out << "Icon=checkd\n";
+            out << "Icon=" << iconName << "\n";
             out << "Terminal=false\n";
             out << "Categories=Utility;\n";
             out << "X-GNOME-Autostart-enabled=true\n";

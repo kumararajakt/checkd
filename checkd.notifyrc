@@ -1,6 +1,6 @@
 [Global]
-IconName=checkd
-DesktopEntry=checkd
+IconName=com.kumar.checkd
+DesktopEntry=com.kumar.checkd
 Name=CheckD
 Comment=CheckD task manager
 

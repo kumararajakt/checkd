@@ -21,8 +21,9 @@ int main(int argc, char *argv[])
     KLocalizedString::setApplicationDomain(QByteArrayLiteral("checkd"));
     KIconTheme::initTheme();
     QApplication app(argc, argv);
-    app.setOrganizationName(QStringLiteral("kumar"));
     app.setApplicationName(QStringLiteral("checkd"));
+    QApplication::setDesktopFileName(QStringLiteral("com.kumar.checkd"));
+    QApplication::setWindowIcon(QIcon::fromTheme(QStringLiteral("com.kumar.checkd"), QIcon::fromTheme(QStringLiteral("checkd"))));
     app.setQuitOnLastWindowClosed(false);
 
     DatabaseManager::instance().initialize();

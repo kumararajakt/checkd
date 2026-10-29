@@ -51,21 +51,25 @@ void SystemTray::setAssociatedWindow(QQuickWindow *window)
 
 void SystemTray::setupTray()
 {
-    m_trayItem = new KStatusNotifierItem(QStringLiteral("checkd"), this);
+    m_trayItem = new KStatusNotifierItem(QStringLiteral("com.kumar.checkd"), this);
     m_trayItem->setCategory(KStatusNotifierItem::ApplicationStatus);
     m_trayItem->setStatus(KStatusNotifierItem::Active);
     m_trayItem->setTitle(QStringLiteral("CheckD"));
     m_trayItem->setToolTipTitle(QStringLiteral("CheckD"));
     m_trayItem->setToolTipSubTitle(i18n("Task & Todo Manager"));
 
-    // Prefer checkd icon, falling back to standard theme icons
-    if (QIcon::hasThemeIcon(QStringLiteral("checkd"))) {
-        m_trayItem->setIconByName(QStringLiteral("checkd"));
-    } else if (QIcon::hasThemeIcon(QStringLiteral("checkbox"))) {
-        m_trayItem->setIconByName(QStringLiteral("checkbox"));
-    } else {
-        m_trayItem->setIconByName(QStringLiteral("view-list-symbolic"));
-    }
+    // Prefer com.kumar.checkd icon (matches Flatpak App ID and host desktop integration),
+    // falling back to checkd, and standard theme icons
+    const QString iconName = QIcon::hasThemeIcon(QStringLiteral("com.kumar.checkd"))
+        ? QStringLiteral("com.kumar.checkd")
+        : (QIcon::hasThemeIcon(QStringLiteral("checkd"))
+            ? QStringLiteral("checkd")
+            : (QIcon::hasThemeIcon(QStringLiteral("checkbox"))
+                ? QStringLiteral("checkbox")
+                : QStringLiteral("view-list-symbolic")));
+
+    m_trayItem->setIconByName(iconName);
+    m_trayItem->setToolTipIconByName(iconName);
 
     // Configure context menu
     QMenu *menu = m_trayItem->contextMenu();

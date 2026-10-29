@@ -538,7 +538,6 @@ QQC2.ItemDelegate {
             parent: QQC2.Overlay.overlay
             x: parent ? Math.round((parent.width - width) / 2) : 0
             y: parent ? Math.round((parent.height - height) / 2) : 0
-            resettable: true
             autoAccept: true
             onAccepted: {
                 let d = value;
@@ -546,10 +545,6 @@ QQC2.ItemDelegate {
                 delegate.dueDate = formatted;
                 delegate.setModelProperty("dueDate", formatted);
                 close();
-            }
-            onReset: {
-                delegate.dueDate = "";
-                delegate.setModelProperty("dueDate", "");
             }
         }
     }
@@ -561,16 +556,11 @@ QQC2.ItemDelegate {
             parent: QQC2.Overlay.overlay
             x: parent ? Math.round((parent.width - width) / 2) : 0
             y: parent ? Math.round((parent.height - height) / 2) : 0
-            resettable: true
             onAccepted: {
                 let t = value;
                 let formattedTime = Qt.formatTime(t, "hh:mm");
                 delegate.dueTime = formattedTime;
                 delegate.setModelProperty("dueTime", formattedTime);
-            }
-            onReset: {
-                delegate.dueTime = "";
-                delegate.setModelProperty("dueTime", "");
             }
         }
     }
