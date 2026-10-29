@@ -20,6 +20,9 @@ AppSettings::AppSettings(QObject *parent)
 
 bool AppSettings::closeToTray() const
 {
+    if (m_settings.contains(QStringLiteral("General/closeToTray"))) {
+        return m_settings.value(QStringLiteral("General/closeToTray")).toBool();
+    }
     return m_settings.value(QStringLiteral("general/closeToTray"), true).toBool();
 }
 
@@ -28,9 +31,27 @@ void AppSettings::setCloseToTray(bool enabled)
     if (closeToTray() == enabled) {
         return;
     }
-    m_settings.setValue(QStringLiteral("general/closeToTray"), enabled);
+    m_settings.setValue(QStringLiteral("General/closeToTray"), enabled);
     m_settings.sync();
     Q_EMIT closeToTrayChanged();
+}
+
+QString AppSettings::lastSelectedListId() const
+{
+    if (m_settings.contains(QStringLiteral("General/lastSelectedListId"))) {
+        return m_settings.value(QStringLiteral("General/lastSelectedListId")).toString();
+    }
+    return m_settings.value(QStringLiteral("general/lastSelectedListId"), QString()).toString();
+}
+
+void AppSettings::setLastSelectedListId(const QString &id)
+{
+    if (lastSelectedListId() == id) {
+        return;
+    }
+    m_settings.setValue(QStringLiteral("General/lastSelectedListId"), id);
+    m_settings.sync();
+    Q_EMIT lastSelectedListIdChanged();
 }
 
 QString AppSettings::autostartFilePath() const
@@ -50,6 +71,9 @@ bool AppSettings::autostart() const
     if (QFile::exists(altPath)) {
         return true;
     }
+    if (m_settings.contains(QStringLiteral("General/autostart"))) {
+        return m_settings.value(QStringLiteral("General/autostart")).toBool();
+    }
     return m_settings.value(QStringLiteral("general/autostart"), false).toBool();
 }
 
@@ -60,7 +84,7 @@ void AppSettings::setAutostart(bool enabled)
     }
 
     writeAutostartFile(enabled);
-    m_settings.setValue(QStringLiteral("general/autostart"), enabled);
+    m_settings.setValue(QStringLiteral("General/autostart"), enabled);
     m_settings.sync();
     Q_EMIT autostartChanged();
 }

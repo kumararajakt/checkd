@@ -117,6 +117,20 @@ QVariantMap SidebarListModel::get(int row) const
     return map;
 }
 
+int SidebarListModel::indexOfId(const QString &id) const
+{
+    if (id.isEmpty()) {
+        return -1;
+    }
+
+    for (int i = 0; i < records_.count(); ++i) {
+        if (records_.at(i).value(QStringLiteral("id")).toString() == id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 bool SidebarListModel::setProperty(int row, const QString &property, const QVariant &value)
 {
     if (row < 0 || row >= records_.count()) {

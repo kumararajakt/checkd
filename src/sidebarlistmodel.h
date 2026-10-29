@@ -32,6 +32,7 @@ public:
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
 
     Q_INVOKABLE QVariantMap get(int row) const;
+    Q_INVOKABLE int indexOfId(const QString &id) const;
     Q_INVOKABLE bool setProperty(int row, const QString &property, const QVariant &value);
     Q_INVOKABLE bool remove(int row);
     Q_INVOKABLE void addList(const QString &name, const QString &color = QStringLiteral("#3b82f6"));

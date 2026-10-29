@@ -17,6 +17,7 @@ private Q_SLOTS:
     void initTestCase();
     void testCloseToTray();
     void testAutostart();
+    void testLastSelectedListId();
     void testQmlGeneralSettingsPage();
     void cleanupTestCase();
 
@@ -79,6 +80,24 @@ void TestAppSettings::testAutostart()
     settings.setAutostart(false);
     QCOMPARE(settings.autostart(), false);
     QCOMPARE(QFile::exists(m_autostartFile), false);
+    QCOMPARE(spy.count(), 2);
+}
+
+void TestAppSettings::testLastSelectedListId()
+{
+    AppSettings &settings = AppSettings::instance();
+    QSignalSpy spy(&settings, &AppSettings::lastSelectedListIdChanged);
+
+    settings.setLastSelectedListId(QStringLiteral("test-uuid-1234"));
+    QCOMPARE(settings.lastSelectedListId(), QStringLiteral("test-uuid-1234"));
+    QCOMPARE(spy.count(), 1);
+
+    // Setting same value shouldn't emit signal
+    settings.setLastSelectedListId(QStringLiteral("test-uuid-1234"));
+    QCOMPARE(spy.count(), 1);
+
+    settings.setLastSelectedListId(QStringLiteral(""));
+    QCOMPARE(settings.lastSelectedListId(), QStringLiteral(""));
     QCOMPARE(spy.count(), 2);
 }
 

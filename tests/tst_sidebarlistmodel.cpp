@@ -19,6 +19,7 @@ private Q_SLOTS:
     void testRenameList();
     void testSetListColor();
     void testGetMethod();
+    void testIndexOfId();
     void testDeleteList();
 
 private:
@@ -135,6 +136,21 @@ void TestSidebarListModel::testGetMethod()
     QCOMPARE(item.value(QStringLiteral("color")).toString(), QStringLiteral("#2ecc71"));
     QCOMPARE(item.value(QStringLiteral("modelColor")).toString(), QStringLiteral("#2ecc71"));
     QVERIFY(!item.value(QStringLiteral("id")).toString().isEmpty());
+}
+
+void TestSidebarListModel::testIndexOfId()
+{
+    SidebarListModel model;
+    QSignalSpy selectSpy(&model, &AsyncSql::AsyncSqlBaseModel::selected);
+    QVERIFY(selectSpy.wait(3000));
+    QCOMPARE(model.rowCount(), 1);
+
+    QString id = model.data(model.index(0, 0), SidebarListModel::IdRole).toString();
+    QVERIFY(!id.isEmpty());
+
+    QCOMPARE(model.indexOfId(id), 0);
+    QCOMPARE(model.indexOfId(QStringLiteral("non-existent-id")), -1);
+    QCOMPARE(model.indexOfId(QString()), -1);
 }
 
 void TestSidebarListModel::testDeleteList()

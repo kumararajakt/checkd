@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.checkd
 
 QQC2.ItemDelegate {
     id: delegateItem
@@ -48,10 +49,12 @@ QQC2.ItemDelegate {
         if (delegateItem.listModel && typeof delegateItem.listModel.remove === "function") {
             let view = delegateItem.parentView;
             let idx = delegateItem.index;
+            let wasCurrent = (view && view.currentIndex === idx);
             delegateItem.listModel.remove(idx);
             if (view) {
-                if (view.currentIndex === idx) {
+                if (wasCurrent) {
                     view.currentIndex = -1;
+                    AppSettings.lastSelectedListId = "";
                 } else if (view.currentIndex > idx) {
                     view.currentIndex -= 1;
                 }

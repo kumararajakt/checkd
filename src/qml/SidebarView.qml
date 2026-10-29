@@ -14,6 +14,7 @@ Kirigami.ScrollablePage {
     signal openSettingsRequested
 
     property int _updateTrigger: 0
+    property bool _restored: false
     property alias count: navList.count
     property alias currentIndex: navList.currentIndex
     readonly property var currentItem: {
@@ -25,6 +26,19 @@ Kirigami.ScrollablePage {
             : null;
     }
 
+    function restoreSelection() {
+        if (navList.count > 0) {
+            const lastId = AppSettings.lastSelectedListId;
+            if (lastId && lastId.length > 0 && navList.model && typeof navList.model.indexOfId === "function") {
+                const idx = navList.model.indexOfId(lastId);
+                if (idx >= 0) {
+                    navList.currentIndex = idx;
+                }
+            }
+            _restored = true;
+        }
+    }
+
     Connections {
         target: navList.model
         function onDataChanged() {
@@ -32,9 +46,11 @@ Kirigami.ScrollablePage {
         }
         function onModelReset() {
             sidebarView._updateTrigger++;
+            sidebarView.restoreSelection();
         }
         function onCountChanged() {
             sidebarView._updateTrigger++;
+            sidebarView.restoreSelection();
         }
     }
 
@@ -78,6 +94,17 @@ Kirigami.ScrollablePage {
 
         anchors.fill: parent
         currentIndex: -1
+
+        onCurrentIndexChanged: {
+            if (currentIndex >= 0 && currentIndex < navList.count && navList.model) {
+                const item = navList.model.get(currentIndex);
+                if (item && item.id) {
+                    AppSettings.lastSelectedListId = item.id;
+                }
+            } else if (currentIndex === -1 && sidebarView._restored && navList.count === 0) {
+                AppSettings.lastSelectedListId = "";
+            }
+        }
 
         model: SidebarListModel {
             id: sidebarModel
