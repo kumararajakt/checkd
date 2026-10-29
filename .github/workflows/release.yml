@@ -34,8 +34,20 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Fetch submodules
+        run: |
+          python3 -c '
+          import urllib.request, tarfile, io, os
+          url = "https://github.com/kumararajakt/AsyncSql/archive/refs/heads/master.tar.gz"
+          with urllib.request.urlopen(url) as resp:
+              with tarfile.open(fileobj=io.BytesIO(resp.read()), mode="r:gz") as tar:
+                  for member in tar.getmembers():
+                      parts = member.name.split("/", 1)
+                      if len(parts) > 1 and parts[1]:
+                          member.name = parts[1]
+                          tar.extract(member, path="3rdparty/AsyncSql")
+          '
 
       - name: Configure OAuth credentials
         env:
@@ -69,6 +81,9 @@ jobs:
       options: --privileged
 
     steps:
+      - name: Install git
+        run: dnf install -y git
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
