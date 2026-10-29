@@ -5,6 +5,7 @@
 #include "databasemanager.h"
 #include "sidebarlistmodel.h"
 #include "tasklistmodel.h"
+#include "taskfilterproxymodel.h"
 
 class TestTaskListModel : public QObject
 {
@@ -20,6 +21,7 @@ private Q_SLOTS:
     void testUpdateDetails();
     void testGetMethod();
     void testDeleteTask();
+    void testTaskFilterProxyModel();
 
 private:
     QTemporaryDir m_tempDir;
@@ -189,6 +191,47 @@ void TestTaskListModel::testDeleteTask()
     model2.setListId(m_listId);
     QVERIFY(selectSpy2.wait(3000));
     QCOMPARE(model2.rowCount(), 0);
+}
+
+void TestTaskListModel::testTaskFilterProxyModel()
+{
+    TaskListModel taskModel;
+    QSignalSpy selectSpy(&taskModel, &AsyncSql::AsyncSqlBaseModel::selected);
+    taskModel.setListId(m_listId);
+    QVERIFY(selectSpy.wait(3000));
+
+    taskModel.addTask(QStringLiteral("Active Task 1"));
+    taskModel.addTask(QStringLiteral("Task to complete"));
+
+    QCOMPARE(taskModel.rowCount(), 2);
+
+    TaskFilterProxyModel activeProxy;
+    activeProxy.setSourceTaskListModel(&taskModel);
+    activeProxy.setFilterCompleted(false);
+
+    TaskFilterProxyModel completedProxy;
+    completedProxy.setSourceTaskListModel(&taskModel);
+    completedProxy.setFilterCompleted(true);
+
+    QCOMPARE(activeProxy.rowCount(), 2);
+    QCOMPARE(completedProxy.rowCount(), 0);
+
+    // Complete the second task
+    activeProxy.setCompleted(1, true);
+
+    QCOMPARE(activeProxy.rowCount(), 1);
+    QCOMPARE(completedProxy.rowCount(), 1);
+    QCOMPARE(activeProxy.data(activeProxy.index(0, 0), TaskListModel::TitleRole).toString(), QStringLiteral("Active Task 1"));
+    QCOMPARE(completedProxy.data(completedProxy.index(0, 0), TaskListModel::TitleRole).toString(), QStringLiteral("Task to complete"));
+
+    // Uncomplete from completed proxy
+    completedProxy.setCompleted(0, false);
+    QCOMPARE(activeProxy.rowCount(), 2);
+    QCOMPARE(completedProxy.rowCount(), 0);
+
+    // Clean up
+    taskModel.remove(0);
+    taskModel.remove(0);
 }
 
 QTEST_MAIN(TestTaskListModel)

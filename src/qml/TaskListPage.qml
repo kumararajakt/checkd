@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls as QQC2
+import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.checkd
 
@@ -12,6 +13,11 @@ Kirigami.Page {
     property int listsCount: 0
     property var selectedList: null
     property bool showAddTask: false
+    property bool completedExpanded: false
+
+    onSelectedListIndexChanged: {
+        root.completedExpanded = false;
+    }
 
     onShowAddTaskChanged: {
         addTaskAction.checked = root.showAddTask;
@@ -120,38 +126,137 @@ Kirigami.Page {
         explanation: qsTr("Choose a list from the sidebar to view its tasks.")
     }
 
-    // ── 3. Content when a list is selected ──────────────────────────────
-    ListView {
-        id: taskList
-        anchors.fill: parent
+    TaskListModel {
+        id: taskModel
+        listId: root.selectedList ? root.selectedList.id : ""
+    }
 
+    TaskFilterProxyModel {
+        id: activeTasksModel
+        sourceTaskListModel: taskModel
+        filterCompleted: false
+    }
+
+    TaskFilterProxyModel {
+        id: completedTasksModel
+        sourceTaskListModel: taskModel
+        filterCompleted: true
+    }
+
+    // ── 3. Content when a list is selected ──────────────────────────────
+    ColumnLayout {
+        id: mainContentLayout
+        anchors.fill: parent
+        spacing: 0
         visible: root.listsCount > 0 && root.selectedListIndex >= 0
 
-        model: TaskListModel {
-            id: taskModel
-            listId: root.selectedList ? root.selectedList.id : ""
+        // ── Active Tasks List ───────────────────────────────────────────
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            ListView {
+                id: activeTaskList
+                anchors.fill: parent
+                clip: true
+
+                model: activeTasksModel
+                delegate: TaskItemDelegate {}
+
+                QQC2.BusyIndicator {
+                    anchors.centerIn: parent
+                    running: taskModel.busy
+                    visible: running
+                }
+
+                Kirigami.PlaceholderMessage {
+                    anchors.centerIn: parent
+                    visible: taskModel.count === 0 && !taskModel.busy
+                    icon.name: "checkbox"
+                    text: qsTr("No tasks")
+                    explanation: qsTr("No Tasks Found.")
+
+                    helpfulAction: Kirigami.Action {
+                        icon.name: "list-add"
+                        text: qsTr("Add Task")
+                        onTriggered: {
+                            root.showAddTask = true;
+                        }
+                    }
+                }
+
+                Kirigami.PlaceholderMessage {
+                    anchors.centerIn: parent
+                    visible: taskModel.count > 0 && activeTasksModel.count === 0 && !taskModel.busy
+                    icon.name: "task-complete"
+                    text: qsTr("All tasks completed")
+                    explanation: qsTr("Completed tasks are shown below.")
+                }
+            }
         }
 
-        delegate: TaskItemDelegate {}
+        // ── Completed Tasks Section (Bottom) ─────────────────────────────
+        ColumnLayout {
+            id: completedSection
+            Layout.fillWidth: true
+            spacing: 0
+            visible: completedTasksModel.count > 0
 
-        QQC2.BusyIndicator {
-            anchors.centerIn: parent
-            running: taskModel.busy
-            visible: running
-        }
+            Kirigami.Separator {
+                Layout.fillWidth: true
+            }
 
-        Kirigami.PlaceholderMessage {
-            anchors.centerIn: parent
-            visible: taskList.count === 0 && !taskModel.busy
-            icon.name: "checkbox"
-            text: qsTr("No tasks")
-            explanation: qsTr("No Tasks Found.")
+            QQC2.ItemDelegate {
+                id: completedHeader
+                Layout.fillWidth: true
+                leftPadding: Kirigami.Units.largeSpacing
+                rightPadding: Kirigami.Units.largeSpacing
+                topPadding: Kirigami.Units.smallSpacing
+                bottomPadding: Kirigami.Units.smallSpacing
 
-            helpfulAction: Kirigami.Action {
-                icon.name: "list-add"
-                text: qsTr("Add Task")
-                onTriggered: {
-                    root.showAddTask = true;
+                contentItem: RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Kirigami.Icon {
+                        implicitWidth: Kirigami.Units.iconSizes.small
+                        implicitHeight: Kirigami.Units.iconSizes.small
+                        source: "go-next"
+                        rotation: root.completedExpanded ? 90 : 0
+                        opacity: 0.7
+
+                        Behavior on rotation {
+                            NumberAnimation {
+                                duration: Kirigami.Units.shortDuration
+                            }
+                        }
+                    }
+
+                    QQC2.Label {
+                        text: qsTr("Completed (%1)").arg(completedTasksModel.count)
+                        font.bold: true
+                        Layout.fillWidth: true
+                        color: Kirigami.Theme.disabledTextColor
+                    }
+                }
+
+                onClicked: {
+                    root.completedExpanded = !root.completedExpanded;
+                }
+            }
+
+            ListView {
+                id: completedTaskList
+                Layout.fillWidth: true
+                visible: root.completedExpanded
+                clip: true
+                Layout.preferredHeight: root.completedExpanded ? Math.min(Kirigami.Units.gridUnit * 12, Math.max(contentHeight, 1)) : 0
+                model: completedTasksModel
+                delegate: TaskItemDelegate {}
+
+                Behavior on Layout.preferredHeight {
+                    NumberAnimation {
+                        duration: Kirigami.Units.shortDuration
+                    }
                 }
             }
         }

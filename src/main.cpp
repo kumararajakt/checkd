@@ -15,6 +15,7 @@
 #include "syncmanager.h"
 #include "systemtray.h"
 #include "tasklistmodel.h"
+#include "taskfilterproxymodel.h"
 
 int main(int argc, char *argv[])
 {
@@ -30,6 +31,7 @@ int main(int argc, char *argv[])
     DatabaseManager::instance().initialize();
     qmlRegisterType<SidebarListModel>("org.checkd", 1, 0, "SidebarListModel");
     qmlRegisterType<TaskListModel>("org.checkd", 1, 0, "TaskListModel");
+    qmlRegisterType<TaskFilterProxyModel>("org.checkd", 1, 0, "TaskFilterProxyModel");
     qmlRegisterSingletonInstance<AppSettings>("org.checkd", 1, 0, "AppSettings", &AppSettings::instance());
     qmlRegisterSingletonInstance<SyncManager>("org.checkd", 1, 0, "SyncManager", &SyncManager::instance());
 

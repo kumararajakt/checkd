@@ -30,6 +30,7 @@ add_executable(tst_tasklistmodel
     ../src/databasemanager.cpp
     ../src/sidebarlistmodel.cpp
     ../src/tasklistmodel.cpp
+    ../src/taskfilterproxymodel.cpp
     ../src/notificationmanager.cpp
     ../src/googleauth.cpp
     ../src/googlecalendarservice.cpp

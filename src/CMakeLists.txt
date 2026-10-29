@@ -14,6 +14,8 @@ target_sources(checkd
     sidebarlistmodel.h
     tasklistmodel.cpp
     tasklistmodel.h
+    taskfilterproxymodel.cpp
+    taskfilterproxymodel.h
     systemtray.cpp
     systemtray.h
     notificationmanager.cpp
