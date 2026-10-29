@@ -11,6 +11,8 @@ Kirigami.ScrollablePage {
 
     title: ""
 
+    signal openSettingsRequested
+
     property int _updateTrigger: 0
     property alias count: navList.count
     property alias currentIndex: navList.currentIndex
@@ -82,5 +84,12 @@ Kirigami.ScrollablePage {
         }
 
         delegate: SidebarListDelegate {}
+    }
+
+    footer: QQC2.ItemDelegate {
+        width: parent ? parent.width : 0
+        text: qsTr("Settings")
+        icon.name: "settings-configure"
+        onClicked: sidebarView.openSettingsRequested()
     }
 }

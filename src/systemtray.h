@@ -13,13 +13,18 @@ class SystemTray : public QObject
     Q_OBJECT
 
 public:
-    explicit SystemTray(QQuickWindow *window, QObject *parent = nullptr);
+    explicit SystemTray(QQuickWindow *window = nullptr, QObject *parent = nullptr);
     ~SystemTray() override;
+
+    void setAssociatedWindow(QQuickWindow *window);
 
     Q_INVOKABLE void showNotification(const QString &title, const QString &message);
     Q_INVOKABLE void toggleWindow();
     Q_INVOKABLE void hideWindow();
     Q_INVOKABLE void showWindow();
+
+Q_SIGNALS:
+    void openSettingsRequested();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

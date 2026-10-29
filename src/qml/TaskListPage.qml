@@ -21,6 +21,7 @@ Kirigami.Page {
     }
 
     signal createListRequested
+    signal openSettingsRequested
 
     title: root.selectedList ? root.selectedList.label : ""
 
@@ -35,6 +36,14 @@ Kirigami.Page {
             enabled: root.listsCount > 0 && root.selectedListIndex >= 0
             onTriggered: {
                 root.showAddTask = checked;
+            }
+        },
+        Kirigami.Action {
+            id: settingsAction
+            text: qsTr("Settings")
+            icon.name: "settings-configure"
+            onTriggered: {
+                root.openSettingsRequested();
             }
         }
     ]

@@ -18,6 +18,8 @@ target_sources(checkd
     systemtray.h
     notificationmanager.cpp
     notificationmanager.h
+    appsettings.cpp
+    appsettings.h
 )
 
 target_compile_options(checkd
@@ -34,6 +36,7 @@ ecm_target_qml_sources(checkd
     qml/TaskListPage.qml
     qml/TaskItemDelegate.qml
     qml/RepeatDialog.qml
+    qml/GeneralSettingsPage.qml
 )
 
 target_link_libraries(checkd

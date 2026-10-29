@@ -1,4 +1,5 @@
 #include "systemtray.h"
+#include "appsettings.h"
 
 #include <QApplication>
 #include <QCloseEvent>
@@ -10,16 +11,43 @@
 
 SystemTray::SystemTray(QQuickWindow *window, QObject *parent)
     : QObject(parent)
-    , m_window(window)
 {
     setupTray();
 
-    if (m_window) {
-        m_window->installEventFilter(this);
+    if (window) {
+        setAssociatedWindow(window);
     }
 }
 
 SystemTray::~SystemTray() = default;
+
+void SystemTray::setAssociatedWindow(QQuickWindow *window)
+{
+    if (m_window == window) {
+        return;
+    }
+
+    if (m_window) {
+        m_window->removeEventFilter(this);
+    }
+
+    m_window = window;
+
+    if (m_window) {
+        m_window->installEventFilter(this);
+        if (m_trayItem) {
+            m_trayItem->setAssociatedWindow(m_window);
+        }
+        connect(m_window, &QWindow::visibleChanged, this, [this](bool visible) {
+            if (m_toggleAction) {
+                m_toggleAction->setText(visible ? i18n("Hide CheckD") : i18n("Open CheckD"));
+            }
+        });
+        if (m_toggleAction) {
+            m_toggleAction->setText(m_window->isVisible() ? i18n("Hide CheckD") : i18n("Open CheckD"));
+        }
+    }
+}
 
 void SystemTray::setupTray()
 {
@@ -39,10 +67,6 @@ void SystemTray::setupTray()
         m_trayItem->setIconByName(QStringLiteral("view-list-symbolic"));
     }
 
-    if (m_window) {
-        m_trayItem->setAssociatedWindow(m_window);
-    }
-
     // Configure context menu
     QMenu *menu = m_trayItem->contextMenu();
     if (menu) {
@@ -50,24 +74,24 @@ void SystemTray::setupTray()
         m_toggleAction->setIcon(QIcon::fromTheme(QStringLiteral("window-duplicate")));
         connect(m_toggleAction, &QAction::triggered, this, &SystemTray::toggleWindow);
 
+        auto *settingsAction = new QAction(i18n("Settings…"), this);
+        settingsAction->setIcon(QIcon::fromTheme(QStringLiteral("settings-configure")));
+        connect(settingsAction, &QAction::triggered, this, [this]() {
+            showWindow();
+            Q_EMIT openSettingsRequested();
+        });
+
         if (!menu->actions().isEmpty()) {
             menu->insertAction(menu->actions().first(), m_toggleAction);
-            menu->insertSeparator(menu->actions().at(1));
+            menu->insertAction(menu->actions().at(1), settingsAction);
+            menu->insertSeparator(menu->actions().at(2));
         } else {
             menu->addAction(m_toggleAction);
+            menu->addAction(settingsAction);
         }
     }
 
     connect(m_trayItem, &KStatusNotifierItem::quitRequested, this, &SystemTray::onQuitRequested);
-
-    // Update toggle action text dynamically based on window visibility
-    if (m_window) {
-        connect(m_window, &QWindow::visibleChanged, this, [this](bool visible) {
-            if (m_toggleAction) {
-                m_toggleAction->setText(visible ? i18n("Hide CheckD") : i18n("Open CheckD"));
-            }
-        });
-    }
 }
 
 void SystemTray::toggleWindow()
@@ -120,9 +144,15 @@ bool SystemTray::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_window && event->type() == QEvent::Close) {
         if (!m_isQuitting) {
-            event->ignore();
-            hideWindow();
-            return true;
+            if (AppSettings::instance().closeToTray()) {
+                event->ignore();
+                hideWindow();
+                return true;
+            } else {
+                m_isQuitting = true;
+                qApp->quit();
+                return true;
+            }
         }
     }
     return QObject::eventFilter(watched, event);

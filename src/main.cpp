@@ -8,6 +8,7 @@
 #include <KIconTheme>
 
 #include <QQuickWindow>
+#include "appsettings.h"
 #include "databasemanager.h"
 #include "notificationmanager.h"
 #include "sidebarlistmodel.h"
@@ -27,6 +28,7 @@ int main(int argc, char *argv[])
     DatabaseManager::instance().initialize();
     qmlRegisterType<SidebarListModel>("org.checkd", 1, 0, "SidebarListModel");
     qmlRegisterType<TaskListModel>("org.checkd", 1, 0, "TaskListModel");
+    qmlRegisterSingletonInstance<AppSettings>("org.checkd", 1, 0, "AppSettings", &AppSettings::instance());
 
     QApplication::setStyle(QStringLiteral("breeze"));
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE")) {
@@ -35,7 +37,11 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
 
+    SystemTray systemTray(nullptr, &app);
+    engine.rootContext()->setContextProperty(QStringLiteral("systemTray"), &systemTray);
+
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
+    engine.rootContext()->setContextProperty(QStringLiteral("appSettings"), &AppSettings::instance());
     engine.loadFromModule("org.checkd", "Main");
 
     if (engine.rootObjects().isEmpty()) {
@@ -43,8 +49,7 @@ int main(int argc, char *argv[])
     }
 
     QQuickWindow *mainWindow = qobject_cast<QQuickWindow*>(engine.rootObjects().first());
-    SystemTray systemTray(mainWindow, &app);
-    engine.rootContext()->setContextProperty(QStringLiteral("systemTray"), &systemTray);
+    systemTray.setAssociatedWindow(mainWindow);
 
     NotificationManager::instance().setAssociatedWindow(mainWindow);
     engine.rootContext()->setContextProperty(QStringLiteral("notificationManager"), &NotificationManager::instance());

@@ -69,3 +69,28 @@ target_link_libraries(tst_notificationmanager PRIVATE
 )
 
 add_test(NAME tst_notificationmanager COMMAND tst_notificationmanager)
+
+add_executable(tst_appsettings
+    tst_appsettings.cpp
+    ../src/appsettings.cpp
+)
+
+target_include_directories(tst_appsettings PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+)
+
+target_compile_options(tst_appsettings PRIVATE -fexceptions)
+
+target_compile_definitions(tst_appsettings PRIVATE
+    SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+
+target_link_libraries(tst_appsettings PRIVATE
+    Qt6::Core
+    Qt6::Test
+    Qt6::Quick
+    Qt6::Qml
+    KF6::Kirigami
+)
+
+add_test(NAME tst_appsettings COMMAND tst_appsettings)

@@ -2,6 +2,8 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import org.kde.kirigami as Kirigami
+import org.kde.kirigamiaddons.settings as KirigamiSettings
+import org.checkd
 
 Kirigami.ApplicationWindow {
     id: root
@@ -10,6 +12,35 @@ Kirigami.ApplicationWindow {
     height: Kirigami.Settings.isMobile ? -1 : Kirigami.Units.gridUnit * 45
 
     title: qsTr("CheckD")
+
+    Component {
+        id: generalSettingsComponent
+        GeneralSettingsPage {}
+    }
+
+    KirigamiSettings.ConfigurationView {
+        id: configView
+        window: root
+
+        modules: [
+            KirigamiSettings.ConfigurationModule {
+                moduleId: "general"
+                text: qsTr("General")
+                icon.name: "settings-configure"
+                page: () => generalSettingsComponent
+            }
+        ]
+    }
+
+    Connections {
+        target: systemTray
+        function onOpenSettingsRequested() {
+            root.show();
+            root.raise();
+            root.requestActivate();
+            configView.open();
+        }
+    }
 
     globalDrawer: Kirigami.GlobalDrawer {
         id: sidebarDrawer
@@ -20,6 +51,9 @@ Kirigami.ApplicationWindow {
 
         contentItem: SidebarView {
             id: sidebar
+            onOpenSettingsRequested: {
+                configView.open();
+            }
         }
     }
 
@@ -33,6 +67,10 @@ Kirigami.ApplicationWindow {
                 sidebarDrawer.open();
             }
             sidebar.focusNewList();
+        }
+
+        onOpenSettingsRequested: {
+            configView.open();
         }
     }
 }
