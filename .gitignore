@@ -28,7 +28,7 @@ ui_*.h
 *.qmlc
 *.jsc
 Makefile*
-*build-*
+/build-*/
 build/
 *.qm
 *.prl
@@ -60,3 +60,7 @@ compile_commands.json
 build-dir/
 repo/
 *.flatpak
+
+# AppImage build artifacts
+build-appimage/
+*.AppImage

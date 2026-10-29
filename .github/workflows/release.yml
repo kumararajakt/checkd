@@ -1,0 +1,206 @@
+name: Build & Release Packages
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - master
+      - main
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g. v1.0.0). Required if triggering manually to publish a release.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    name: Build Flatpak Bundle
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: com.kumar.checkd.flatpak
+          manifest-path: com.kumar.checkd.yml
+          cache: true
+
+      - name: Upload Flatpak Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: com.kumar.checkd.flatpak
+          path: com.kumar.checkd.flatpak
+          if-no-files-found: error
+
+  appimage:
+    name: Build AppImage
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:41
+      options: --privileged
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          dnf update -y
+          dnf install -y \
+            git \
+            cmake \
+            ninja-build \
+            gcc-c++ \
+            extra-cmake-modules \
+            qt6-qtbase-devel \
+            qt6-qtdeclarative-devel \
+            qt6-qtsvg-devel \
+            kf6-kirigami-devel \
+            kf6-ki18n-devel \
+            kf6-kcoreaddons-devel \
+            kf6-qqc2-desktop-style \
+            kf6-kiconthemes-devel \
+            kf6-kstatusnotifieritem-devel \
+            kf6-knotifications-devel \
+            kf6-kirigami-addons-devel \
+            which \
+            file \
+            wget \
+            fuse \
+            fuse-libs \
+            zlib-devel \
+            libxcb-devel
+
+      - name: Configure Qt tools symlinks
+        run: |
+          ln -sf /usr/bin/qmake6 /usr/local/bin/qmake
+          ln -sf /usr/bin/qtpaths6 /usr/local/bin/qtpaths
+
+      - name: Build and Install Application to AppDir
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DBUILD_TESTING=OFF
+          cmake --build build
+          DESTDIR="$PWD/AppDir" cmake --install build
+
+      - name: Prepare Kirigami & KDE QML Plugins
+        run: |
+          mkdir -p AppDir/usr/lib64/qt6/qml/org/kde
+          for mod in kirigami kirigamiaddons qqc2desktopstyle breeze desktop coreaddons i18n iconthemes; do
+            if [ -d "/usr/lib64/qt6/qml/org/kde/${mod}" ]; then
+              cp -r "/usr/lib64/qt6/qml/org/kde/${mod}" AppDir/usr/lib64/qt6/qml/org/kde/ 2>/dev/null || true
+            fi
+          done
+          mkdir -p AppDir/usr/lib64/qt6/plugins/styles
+          cp -r /usr/lib64/qt6/plugins/styles/* AppDir/usr/lib64/qt6/plugins/styles/ 2>/dev/null || true
+
+      - name: Download & Extract linuxdeploy Tools
+        run: |
+          mkdir -p /opt/tools
+          cd /opt/tools
+          curl -sLo linuxdeploy.AppImage https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -sLo linuxdeploy-plugin-qt.AppImage https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          curl -sLo linuxdeploy-plugin-appimage.AppImage https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
+          chmod +x *.AppImage
+
+          ./linuxdeploy.AppImage --appimage-extract
+          mv squashfs-root /opt/linuxdeploy
+          ./linuxdeploy-plugin-qt.AppImage --appimage-extract
+          mv squashfs-root /opt/linuxdeploy-plugin-qt
+          ./linuxdeploy-plugin-appimage.AppImage --appimage-extract
+          mv squashfs-root /opt/linuxdeploy-plugin-appimage
+
+          ln -sf /opt/linuxdeploy/AppRun /usr/local/bin/linuxdeploy
+          ln -sf /opt/linuxdeploy-plugin-qt/AppRun /usr/local/bin/linuxdeploy-plugin-qt
+          ln -sf /opt/linuxdeploy-plugin-appimage/AppRun /usr/local/bin/linuxdeploy-plugin-appimage
+          cd -
+
+      - name: Generate AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          NO_STRIP: 1
+          DEPLOY_PLATFORM_THEMES: 1
+          EXTRA_PLATFORM_PLUGINS: "libqwayland.so;libqoffscreen.so"
+          QML_SOURCES_PATHS: ${{ github.workspace }}/src/qml
+          EXTRA_QT_MODULES: "core;gui;quick;widgets;sql;svg;quickcontrols2"
+        run: |
+          cat << 'EOF' > AppRun
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          export APPDIR="${HERE}"
+          export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/lib64:${HERE}/usr/lib/qt6:${HERE}/usr/lib64/qt6:${LD_LIBRARY_PATH:-}"
+          export QT_PLUGIN_PATH="${HERE}/usr/plugins:${HERE}/usr/lib/qt6/plugins:${HERE}/usr/lib64/qt6/plugins:${QT_PLUGIN_PATH:-}"
+          export QML_IMPORT_PATH="${HERE}/usr/qml:${HERE}/usr/lib/qt6/qml:${HERE}/usr/lib64/qt6/qml:${QML_IMPORT_PATH:-}"
+          export QML2_IMPORT_PATH="${HERE}/usr/qml:${HERE}/usr/lib/qt6/qml:${HERE}/usr/lib64/qt6/qml:${QML2_IMPORT_PATH:-}"
+          export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+          export QT_QUICK_CONTROLS_STYLE="${QT_QUICK_CONTROLS_STYLE:-org.kde.desktop}"
+          exec "${HERE}/usr/bin/checkd" "$@"
+          EOF
+          chmod +x AppRun
+
+          linuxdeploy \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/checkd \
+            --desktop-file AppDir/usr/share/applications/com.kumar.checkd.desktop \
+            --icon-file AppDir/usr/share/icons/hicolor/scalable/apps/com.kumar.checkd.svg \
+            --custom-apprun AppRun \
+            --plugin qt \
+            --output appimage
+
+          mkdir -p dist
+          mv *.AppImage dist/CheckD-x86_64.AppImage
+
+      - name: Upload AppImage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CheckD-x86_64.AppImage
+          path: dist/CheckD-x86_64.AppImage
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [flatpak, appimage]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display downloaded files
+        run: ls -laR artifacts
+
+      - name: Upload Assets to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/com.kumar.checkd.flatpak/com.kumar.checkd.flatpak
+            artifacts/CheckD-x86_64.AppImage/CheckD-x86_64.AppImage
+          tag_name: ${{ inputs.tag_name || github.event.release.tag_name || github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
