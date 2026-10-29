@@ -11,6 +11,7 @@
 #include <QUrlQuery>
 
 static const QString s_calendarApiBase = QStringLiteral("https://www.googleapis.com/calendar/v3");
+static const QString s_calendarNamespace = QStringLiteral("checkd");
 
 static inline QString urlEncode(const QString &str)
 {
@@ -62,8 +63,9 @@ void GoogleCalendarService::listCalendars(std::function<void(bool ok, const QLis
 
             for (const QJsonValue &val : std::as_const(items)) {
                 QJsonObject obj = val.toObject();
-                // Filter calendars tagged for adventure_list / checkd
-                if (obj.value(QStringLiteral("location")).toString() == QLatin1String("adventure_list")) {
+                // Filter calendars tagged for checkd (and legacy adventure_list)
+                const QString location = obj.value(QStringLiteral("location")).toString();
+                if (location == s_calendarNamespace || location == QLatin1String("adventure_list")) {
                     RemoteCalendar cal;
                     cal.id = obj.value(QStringLiteral("id")).toString();
                     cal.title = obj.value(QStringLiteral("summary")).toString();
@@ -104,7 +106,7 @@ void GoogleCalendarService::createCalendar(const QString &title, int index, cons
 
         QJsonObject body;
         body.insert(QStringLiteral("summary"), title);
-        body.insert(QStringLiteral("location"), QStringLiteral("adventure_list"));
+        body.insert(QStringLiteral("location"), s_calendarNamespace);
         body.insert(QStringLiteral("description"), QString::fromUtf8(QJsonDocument(descObj).toJson(QJsonDocument::Compact)));
 
         QNetworkReply *reply = m_nam.post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
@@ -153,6 +155,7 @@ void GoogleCalendarService::updateCalendar(const QString &calendarId, const QStr
 
         QJsonObject body;
         body.insert(QStringLiteral("summary"), title);
+        body.insert(QStringLiteral("location"), s_calendarNamespace);
         body.insert(QStringLiteral("description"), QString::fromUtf8(QJsonDocument(descObj).toJson(QJsonDocument::Compact)));
 
         QNetworkReply *reply = m_nam.sendCustomRequest(req, "PATCH", QJsonDocument(body).toJson(QJsonDocument::Compact));
