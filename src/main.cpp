@@ -35,7 +35,9 @@ int main(int argc, char *argv[])
     QQmlApplicationEngine engine;
 
     SystemTray systemTray(nullptr, &app);
-    engine.rootContext()->setContextProperty(QStringLiteral("systemTray"), &systemTray);
+    engine.setInitialProperties({
+        {QStringLiteral("systemTray"), QVariant::fromValue(&systemTray)}
+    });
 
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
     engine.rootContext()->setContextProperty(QStringLiteral("appSettings"), &AppSettings::instance());
