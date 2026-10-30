@@ -101,7 +101,13 @@ export PATH="$(pwd)/${CACHE_DIR}:$(pwd)/${CACHE_DIR}/linuxdeploy/usr/bin:$(pwd)/
 export APPIMAGE_EXTRACT_AND_RUN=1
 export NO_STRIP=1
 export DEPLOY_PLATFORM_THEMES=1
-export EXTRA_PLATFORM_PLUGINS="libqwayland.so;libqoffscreen.so"
+PLUGINS="libqoffscreen.so"
+for p in libqwayland.so libqwayland-generic.so libqwayland-egl.so; do
+  if [ -f "/usr/lib64/qt6/plugins/platforms/$p" ] || [ -f "/usr/lib/qt6/plugins/platforms/$p" ]; then
+    PLUGINS="${PLUGINS};$p"
+  fi
+done
+export EXTRA_PLATFORM_PLUGINS="$PLUGINS"
 export QML_SOURCES_PATHS="$(pwd)/src/qml"
 export EXTRA_QT_MODULES="core;gui;quick;widgets;sql;svg;quickcontrols2;network"
 

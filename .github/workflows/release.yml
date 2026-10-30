@@ -113,6 +113,8 @@ jobs:
             qt6-qtbase-devel \
             qt6-qtdeclarative-devel \
             qt6-qtsvg-devel \
+            qt6-qtwayland-devel \
+            qt6-qtwayland \
             kf6-kirigami-devel \
             kf6-ki18n-devel \
             kf6-kcoreaddons-devel \
@@ -180,10 +182,18 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
           NO_STRIP: 1
           DEPLOY_PLATFORM_THEMES: 1
-          EXTRA_PLATFORM_PLUGINS: "libqwayland.so;libqoffscreen.so"
           QML_SOURCES_PATHS: ${{ github.workspace }}/src/qml
           EXTRA_QT_MODULES: "core;gui;quick;widgets;sql;svg;quickcontrols2;network"
         run: |
+          PLUGINS="libqoffscreen.so"
+          for p in libqwayland.so libqwayland-generic.so libqwayland-egl.so; do
+            if [ -f "/usr/lib64/qt6/plugins/platforms/$p" ] || [ -f "/usr/lib/qt6/plugins/platforms/$p" ]; then
+              PLUGINS="${PLUGINS};$p"
+            fi
+          done
+          export EXTRA_PLATFORM_PLUGINS="$PLUGINS"
+          echo "Using EXTRA_PLATFORM_PLUGINS: ${EXTRA_PLATFORM_PLUGINS}"
+
           cat << 'EOF' > AppRun
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "${0}")")"
